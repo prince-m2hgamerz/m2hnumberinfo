@@ -48,7 +48,7 @@ const Admin = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const ADMIN_PASSWORD = "admin123"; // In production, this should be server-side validated
+  const ADMIN_PASSWORD = "m2hgamerz"; // Admin password
 
   const loadData = async () => {
     setRefreshing(true);

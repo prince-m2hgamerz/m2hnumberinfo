@@ -71,7 +71,7 @@ serve(async (req) => {
 
     // Check rate limit
     const now = new Date();
-    const { data: rateLimit, error: rateLimitError } = await supabase
+    const { data: rateLimit } = await supabase
       .from('rate_limits')
       .select('*')
       .eq('user_id', userId)
@@ -121,6 +121,26 @@ serve(async (req) => {
 
     console.log('API Response:', JSON.stringify(apiData));
 
+    if (!apiData.success || !apiData.result || apiData.result.length === 0) {
+      return new Response(
+        JSON.stringify({ 
+          error: 'No data found for this number',
+          success: false 
+        }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Parse the response - get the first result that matches the searched number
+    const results = apiData.result;
+    const primaryResult = results.find((r: any) => r.mobile === phoneNumber) || results[0];
+
+    // Format address - replace ! with spaces/commas
+    const formatAddress = (addr: string | null) => {
+      if (!addr) return 'Not available';
+      return addr.replace(/!+/g, ', ').replace(/^,\s*|,\s*$/g, '').replace(/,\s*,/g, ',');
+    };
+
     // Deduct credit
     await supabase
       .from('users')
@@ -133,9 +153,9 @@ serve(async (req) => {
       .insert({
         user_id: userId,
         phone_number: phoneNumber,
-        name: apiData.name || null,
-        address: apiData.address || null,
-        circle: apiData.circle || null,
+        name: primaryResult.name || null,
+        address: formatAddress(primaryResult.address),
+        circle: primaryResult.circle || null,
       });
 
     // Update global stats
@@ -151,16 +171,28 @@ serve(async (req) => {
         .eq('id', stats.id);
     }
 
+    // Return all results for display
+    const formattedResults = results.map((r: any) => ({
+      name: r.name || 'Not available',
+      mobile: r.mobile || phoneNumber,
+      fatherName: r.father_name || null,
+      address: formatAddress(r.address),
+      altMobile: r.alt_mobile || null,
+      circle: r.circle || 'Not available',
+      email: r.email || null,
+    }));
+
     return new Response(
       JSON.stringify({
         success: true,
-        data: {
-          name: apiData.name || 'Not available',
-          mobile: phoneNumber,
-          address: apiData.address || 'Not available',
-          circle: apiData.circle || 'Not available',
-        },
+        resultCount: apiData.result_count || results.length,
+        data: formattedResults[0], // Primary result
+        allResults: formattedResults, // All results
         remainingCredits: user.credits - 1,
+        meta: {
+          processingTime: apiData.meta?.processing_time_ms,
+          timestamp: apiData.meta?.timestamp,
+        }
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

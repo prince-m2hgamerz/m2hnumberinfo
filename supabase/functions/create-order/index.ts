@@ -53,23 +53,28 @@ serve(async (req) => {
     // Generate unique order ID
     const orderId = `ORDER_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
-    // Create Cashfree order
+    // Get the origin for return URL
+    const origin = req.headers.get('origin') || 'https://lovable.dev';
+
+    // Create Cashfree order with payment_session
     const cashfreePayload = {
       order_id: orderId,
-      order_amount: amount,
+      order_amount: parseFloat(amount),
       order_currency: 'INR',
       customer_details: {
-        customer_id: userId,
+        customer_id: user.id.substring(0, 25), // Cashfree has a 25 char limit
         customer_name: user.username,
-        customer_email: `${user.username}@numberinfo.app`,
-        customer_phone: '9999999999',
+        customer_email: `${user.username}@numberinfo.local`,
+        customer_phone: '9999999999', // Required by Cashfree
       },
       order_meta: {
-        return_url: `${req.headers.get('origin') || 'https://lovable.dev'}/dashboard?order_id=${orderId}&status={order_status}`,
+        return_url: `${origin}/dashboard?order_id=${orderId}&status={order_status}`,
+        notify_url: `${supabaseUrl}/functions/v1/payment-webhook`,
       },
     };
 
     console.log('Creating Cashfree order:', JSON.stringify(cashfreePayload));
+    console.log('Using App ID:', cashfreeAppId?.substring(0, 10) + '...');
 
     const cashfreeResponse = await fetch(`${CASHFREE_API_URL}/orders`, {
       method: 'POST',
@@ -83,10 +88,18 @@ serve(async (req) => {
     });
 
     const cashfreeData = await cashfreeResponse.json();
+    console.log('Cashfree response status:', cashfreeResponse.status);
     console.log('Cashfree response:', JSON.stringify(cashfreeData));
 
     if (!cashfreeResponse.ok) {
-      throw new Error(cashfreeData.message || 'Failed to create Cashfree order');
+      console.error('Cashfree error:', cashfreeData);
+      return new Response(
+        JSON.stringify({ 
+          error: cashfreeData.message || 'Payment gateway error',
+          details: cashfreeData 
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     // Store order in database
@@ -102,21 +115,30 @@ serve(async (req) => {
 
     if (orderError) {
       console.error('Error storing order:', orderError);
-      throw new Error('Failed to store order');
+      return new Response(
+        JSON.stringify({ error: 'Failed to store order' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    // Extract payment link from response
-    const paymentLink = cashfreeData.payment_link || 
-                        cashfreeData.payments?.url || 
-                        cashfreeData.order_meta?.payment_link ||
-                        `https://payments.cashfree.com/order/#${cashfreeData.payment_session_id}`;
+    // Get payment link - Cashfree returns payment_session_id for hosted checkout
+    const paymentSessionId = cashfreeData.payment_session_id;
+    
+    // Build the payment URL using Cashfree's hosted checkout
+    const paymentLink = paymentSessionId 
+      ? `https://payments.cashfree.com/order/#${paymentSessionId}`
+      : cashfreeData.payment_link;
+
+    console.log('Payment session ID:', paymentSessionId);
+    console.log('Payment link:', paymentLink);
 
     return new Response(
       JSON.stringify({
         success: true,
         orderId: orderId,
+        paymentSessionId: paymentSessionId,
         paymentLink: paymentLink,
-        paymentSessionId: cashfreeData.payment_session_id,
+        cfOrderId: cashfreeData.cf_order_id,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

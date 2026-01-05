@@ -2,15 +2,19 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Loader2, User, Phone, MapPin, Radio, AlertCircle, Clock } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Search, Loader2, User, Phone, MapPin, Radio, Clock, Users, Mail, UserCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
 interface NumberResult {
   name: string;
   mobile: string;
+  fatherName?: string | null;
   address: string;
+  altMobile?: string | null;
   circle: string;
+  email?: string | null;
 }
 
 interface NumberLookupProps {
@@ -23,7 +27,8 @@ interface NumberLookupProps {
 export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: NumberLookupProps) => {
   const [number, setNumber] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<NumberResult | null>(null);
+  const [results, setResults] = useState<NumberResult[]>([]);
+  const [resultCount, setResultCount] = useState(0);
   const [rateLimitError, setRateLimitError] = useState<{ message: string; remainingTime: number } | null>(null);
   const { toast } = useToast();
 
@@ -62,7 +67,8 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Num
     }
 
     setLoading(true);
-    setResult(null);
+    setResults([]);
+    setResultCount(0);
     setRateLimitError(null);
 
     try {
@@ -84,13 +90,14 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Num
         return;
       }
 
-      setResult(data.data);
+      setResults(data.allResults || [data.data]);
+      setResultCount(data.resultCount || 1);
       onLookup(data.remainingCredits);
       onHistoryUpdate();
       
       toast({
         title: "Lookup Successful",
-        description: "1 credit has been deducted from your account.",
+        description: `Found ${data.resultCount || 1} result(s). 1 credit deducted.`,
       });
     } catch (error) {
       console.error('Lookup error:', error);
@@ -149,15 +156,81 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Num
           </Button>
         </div>
 
-        {result && (
-          <div className="animate-fade-in space-y-4 pt-4 border-t border-border">
-            <h4 className="text-sm font-medium text-muted-foreground">Search Results</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <ResultItem icon={<User className="w-4 h-4" />} label="Name" value={result.name} />
-              <ResultItem icon={<Phone className="w-4 h-4" />} label="Mobile" value={result.mobile} />
-              <ResultItem icon={<MapPin className="w-4 h-4" />} label="Address" value={result.address} />
-              <ResultItem icon={<Radio className="w-4 h-4" />} label="Circle" value={result.circle} />
+        {/* Loading Skeleton */}
+        {loading && (
+          <div className="space-y-4 pt-4 border-t border-border animate-pulse">
+            <div className="flex items-center gap-2">
+              <div className="h-4 bg-secondary rounded w-24" />
+              <div className="h-4 bg-secondary rounded w-16" />
             </div>
+            {[1, 2].map((i) => (
+              <div key={i} className="p-4 rounded-lg bg-secondary/30 border border-border/50 space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-secondary" />
+                  <div className="space-y-2 flex-1">
+                    <div className="h-4 bg-secondary rounded w-1/3" />
+                    <div className="h-3 bg-secondary rounded w-1/4" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="h-16 bg-secondary/50 rounded-lg" />
+                  <div className="h-16 bg-secondary/50 rounded-lg" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Results */}
+        {!loading && results.length > 0 && (
+          <div className="animate-fade-in space-y-4 pt-4 border-t border-border">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                Found {resultCount} Result{resultCount > 1 ? 's' : ''}
+              </h4>
+            </div>
+            
+            <ScrollArea className={results.length > 1 ? "h-[400px] pr-4" : ""}>
+              <div className="space-y-4">
+                {results.map((result, index) => (
+                  <div 
+                    key={index} 
+                    className="p-4 rounded-lg bg-secondary/30 border border-border/50 hover:border-primary/30 transition-colors animate-fade-in"
+                    style={{ animationDelay: `${index * 0.1}s` }}
+                  >
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                        <User className="w-6 h-6 text-primary" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-foreground">{result.name}</p>
+                        <p className="text-sm text-primary font-mono">{result.mobile}</p>
+                      </div>
+                      {index === 0 && results.length > 1 && (
+                        <span className="ml-auto px-2 py-1 text-xs rounded-full bg-primary/10 text-primary">Primary</span>
+                      )}
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {result.fatherName && (
+                        <ResultItem icon={<UserCircle className="w-4 h-4" />} label="Father's Name" value={result.fatherName} />
+                      )}
+                      <ResultItem icon={<Radio className="w-4 h-4" />} label="Circle" value={result.circle} />
+                      {result.altMobile && (
+                        <ResultItem icon={<Phone className="w-4 h-4" />} label="Alt. Mobile" value={result.altMobile} />
+                      )}
+                      {result.email && (
+                        <ResultItem icon={<Mail className="w-4 h-4" />} label="Email" value={result.email} />
+                      )}
+                      <div className="md:col-span-2">
+                        <ResultItem icon={<MapPin className="w-4 h-4" />} label="Address" value={result.address} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
           </div>
         )}
       </CardContent>
@@ -166,11 +239,11 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Num
 };
 
 const ResultItem = ({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) => (
-  <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/50">
+  <div className="flex items-start gap-3 p-3 rounded-lg bg-background/50">
     <div className="text-primary mt-0.5">{icon}</div>
-    <div>
+    <div className="min-w-0 flex-1">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-sm font-medium text-foreground">{value}</p>
+      <p className="text-sm font-medium text-foreground break-words">{value}</p>
     </div>
   </div>
 );
