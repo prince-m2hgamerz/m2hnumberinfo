@@ -7,6 +7,7 @@ import { SearchHistory } from "@/components/SearchHistory";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { openCashfreeCheckout } from "@/lib/cashfree";
 import { CreditCard, Sparkles, Check, Loader2, ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -191,28 +192,35 @@ const Dashboard = () => {
     setBuyingCredits(credits);
 
     try {
-      const { data, error } = await supabase.functions.invoke('create-order', {
-        body: { userId: user.id, credits, amount: price }
+      const { data, error } = await supabase.functions.invoke("create-order", {
+        body: { userId: user.id, credits, amount: price },
       });
 
       if (error) throw error;
 
-      if (data.paymentLink) {
-        // Open payment link in new tab
-        window.open(data.paymentLink, '_blank');
-        toast({
-          title: "Payment Page Opened",
-          description: "Complete your payment in the new tab. Credits will be added automatically.",
-        });
-      } else if (data.paymentSessionId) {
-        // Fallback to session ID
-        window.open(`https://payments.cashfree.com/order/#${data.paymentSessionId}`, '_blank');
+      const paymentSessionId: string | undefined = data?.paymentSessionId;
+
+      if (!paymentSessionId) {
+        throw new Error("Payment session missing. Please try again.");
       }
+
+      await openCashfreeCheckout({
+        paymentSessionId,
+        mode: "production",
+        redirectTarget: "_blank",
+      });
+
+      toast({
+        title: "Payment Page Opened",
+        description:
+          "Complete your payment in the new tab. Credits will be added automatically.",
+      });
     } catch (error) {
       console.error("Error creating order:", error);
       toast({
         title: "Payment Error",
-        description: error instanceof Error ? error.message : "Failed to initiate payment",
+        description:
+          error instanceof Error ? error.message : "Failed to initiate payment",
         variant: "destructive",
       });
     } finally {
