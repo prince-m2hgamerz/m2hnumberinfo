@@ -37,28 +37,28 @@ export const OrderHistory = ({ orders, loading, onOrderVerified }: OrderHistoryP
 
       if (data.success && data.status === 'completed') {
         toast({
-          title: "🎉 Payment Verified!",
-          description: `${data.credits} credits have been added to your account.`,
+          title: "Payment Verified",
+          description: `${data.credits} credits added.`,
         });
         onOrderVerified();
       } else if (data.status === 'pending' || data.status === 'ACTIVE') {
         toast({
           title: "Still Pending",
-          description: "Payment is still being processed. Please try again later.",
+          description: "Payment is still processing.",
         });
       } else {
         toast({
           title: "Payment Status",
-          description: data.message || "Payment could not be verified.",
+          description: data.message || "Could not verify.",
           variant: "destructive",
         });
-        onOrderVerified(); // Refresh to show updated status
+        onOrderVerified();
       }
     } catch (error) {
       console.error("Retry verification error:", error);
       toast({
-        title: "Verification Failed",
-        description: "Could not verify payment. Please try again.",
+        title: "Error",
+        description: "Could not verify payment.",
         variant: "destructive",
       });
     } finally {
@@ -66,36 +66,25 @@ export const OrderHistory = ({ orders, loading, onOrderVerified }: OrderHistoryP
     }
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="w-4 h-4 text-success" />;
-      case 'failed':
-        return <XCircle className="w-4 h-4 text-destructive" />;
-      default:
-        return <Clock className="w-4 h-4 text-warning" />;
-    }
-  };
-
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'completed':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-success/10 text-success text-xs font-medium">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-success/10 text-success text-xs font-medium">
             <CheckCircle className="w-3 h-3" />
             Completed
           </span>
         );
       case 'failed':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-destructive/10 text-destructive text-xs font-medium">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-destructive/10 text-destructive text-xs font-medium">
             <XCircle className="w-3 h-3" />
             Failed
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-warning/10 text-warning text-xs font-medium">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-warning/10 text-warning text-xs font-medium">
             <Clock className="w-3 h-3" />
             Pending
           </span>
@@ -107,16 +96,16 @@ export const OrderHistory = ({ orders, loading, onOrderVerified }: OrderHistoryP
 
   if (loading) {
     return (
-      <Card variant="glass">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Receipt className="w-5 h-5 text-primary" />
+      <Card>
+        <CardHeader className="pb-4">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Receipt className="w-4 h-4" />
             Order History
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex justify-center py-8">
-            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          <div className="flex justify-center py-6">
+            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
           </div>
         </CardContent>
       </Card>
@@ -124,22 +113,22 @@ export const OrderHistory = ({ orders, loading, onOrderVerified }: OrderHistoryP
   }
 
   return (
-    <Card variant="glass">
+    <Card>
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
         <CollapsibleTrigger asChild>
-          <CardHeader className="cursor-pointer hover:bg-secondary/30 transition-colors rounded-t-xl">
-            <CardTitle className="flex items-center justify-between">
+          <CardHeader className="cursor-pointer hover:bg-secondary/30 transition-colors pb-4">
+            <CardTitle className="flex items-center justify-between text-base">
               <div className="flex items-center gap-2">
-                <Receipt className="w-5 h-5 text-primary" />
+                <Receipt className="w-4 h-4" />
                 Order History
                 {pendingCount > 0 && (
-                  <span className="ml-2 px-2 py-0.5 rounded-full bg-warning/10 text-warning text-xs font-medium">
+                  <span className="px-1.5 py-0.5 rounded-md bg-warning/10 text-warning text-xs font-medium">
                     {pendingCount} pending
                   </span>
                 )}
               </div>
               <div className="flex items-center gap-2 text-muted-foreground">
-                <span className="text-sm font-normal">{orders.length} orders</span>
+                <span className="text-sm font-normal">{orders.length}</span>
                 {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
               </div>
             </CardTitle>
@@ -148,33 +137,31 @@ export const OrderHistory = ({ orders, loading, onOrderVerified }: OrderHistoryP
         <CollapsibleContent>
           <CardContent className="pt-0">
             {orders.length === 0 ? (
-              <p className="text-center text-muted-foreground py-6">No orders yet</p>
+              <p className="text-center text-muted-foreground py-6 text-sm">No orders yet</p>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {orders.map((order) => (
                   <div
                     key={order.id}
-                    className="flex items-center justify-between p-4 rounded-lg bg-secondary/30 border border-border/50"
+                    className="flex items-center justify-between p-3 rounded-md bg-secondary/30 border border-border"
                   >
-                    <div className="flex items-center gap-4">
-                      {getStatusIcon(order.status)}
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-sm text-muted-foreground">
-                            {order.order_id.slice(0, 20)}...
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-xs text-muted-foreground truncate">
+                            {order.order_id.slice(0, 16)}...
                           </span>
                           {getStatusBadge(order.status)}
                         </div>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {new Date(order.created_at).toLocaleDateString()} at{" "}
-                          {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {new Date(order.created_at).toLocaleDateString()}
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3 flex-shrink-0">
                       <div className="text-right">
-                        <p className="font-semibold text-foreground">₹{Number(order.amount)}</p>
-                        <p className="text-xs text-muted-foreground">{order.credits} credits</p>
+                        <p className="font-medium text-foreground text-sm">₹{Number(order.amount)}</p>
+                        <p className="text-xs text-muted-foreground">{order.credits} cr</p>
                       </div>
                       {order.status === 'pending' && (
                         <Button
@@ -184,12 +171,9 @@ export const OrderHistory = ({ orders, loading, onOrderVerified }: OrderHistoryP
                           disabled={verifyingOrder === order.order_id}
                         >
                           {verifyingOrder === order.order_id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <Loader2 className="w-3 h-3 animate-spin" />
                           ) : (
-                            <>
-                              <RefreshCw className="w-3 h-3 mr-1" />
-                              Verify
-                            </>
+                            <RefreshCw className="w-3 h-3" />
                           )}
                         </Button>
                       )}

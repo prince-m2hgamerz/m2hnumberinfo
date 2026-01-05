@@ -57,7 +57,7 @@ export const HelpSection = ({ userId, username }: HelpSectionProps) => {
     if (!subject.trim() || !message.trim()) {
       toast({
         title: "Missing Information",
-        description: "Please fill in both subject and message.",
+        description: "Please fill in both fields.",
         variant: "destructive",
       });
       return;
@@ -85,13 +85,13 @@ export const HelpSection = ({ userId, username }: HelpSectionProps) => {
 
       toast({
         title: "Request Submitted",
-        description: "Your help request has been sent. We'll respond soon!",
+        description: "We'll respond soon!",
       });
     } catch (error) {
       console.error("Error submitting help request:", error);
       toast({
         title: "Error",
-        description: "Failed to submit request. Please try again.",
+        description: "Failed to submit. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -103,21 +103,21 @@ export const HelpSection = ({ userId, username }: HelpSectionProps) => {
     switch (status) {
       case 'open':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-warning/10 text-warning text-xs">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-warning/10 text-warning text-xs">
             <Clock className="w-3 h-3" />
             Pending
           </span>
         );
       case 'replied':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-success/10 text-success text-xs">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-success/10 text-success text-xs">
             <CheckCircle className="w-3 h-3" />
             Replied
           </span>
         );
       case 'closed':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-muted text-muted-foreground text-xs">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted text-muted-foreground text-xs">
             Closed
           </span>
         );
@@ -127,73 +127,64 @@ export const HelpSection = ({ userId, username }: HelpSectionProps) => {
   };
 
   return (
-    <Card variant="glass">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <HelpCircle className="w-5 h-5 text-primary" />
+    <Card>
+      <CardHeader className="pb-4">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <HelpCircle className="w-4 h-4" />
           Need Help?
         </CardTitle>
-        <CardDescription>Contact our support team for any assistance</CardDescription>
+        <CardDescription className="text-sm">Contact support for assistance</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-4">
         {/* Submit Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Subject</label>
-            <Input
-              placeholder="Brief description of your issue"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              maxLength={100}
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Message</label>
-            <Textarea
-              placeholder="Describe your issue in detail..."
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              rows={4}
-              maxLength={1000}
-            />
-          </div>
-          <Button type="submit" disabled={sending} className="w-full sm:w-auto">
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <Input
+            placeholder="Subject"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            maxLength={100}
+          />
+          <Textarea
+            placeholder="Describe your issue..."
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            rows={3}
+            maxLength={1000}
+          />
+          <Button type="submit" disabled={sending} size="sm">
             {sending ? (
-              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
             ) : (
-              <Send className="w-4 h-4 mr-2" />
+              <Send className="w-4 h-4 mr-1.5" />
             )}
-            Submit Request
+            Submit
           </Button>
         </form>
 
         {/* Previous Requests */}
         {requests.length > 0 && (
-          <div className="space-y-3">
-            <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <MessageSquare className="w-4 h-4" />
-              Your Recent Requests
-            </h4>
-            <div className="space-y-3">
+          <div className="space-y-2 pt-4 border-t border-border">
+            <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+              <MessageSquare className="w-3 h-3" />
+              Recent Requests
+            </p>
+            <div className="space-y-2">
               {requests.map((req) => (
                 <div
                   key={req.id}
-                  className="p-4 rounded-lg bg-secondary/30 border border-border/50 space-y-2"
+                  className="p-3 rounded-md bg-secondary/30 border border-border space-y-1.5"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <h5 className="font-medium text-foreground text-sm">{req.subject}</h5>
+                    <p className="font-medium text-foreground text-sm truncate">{req.subject}</p>
                     {getStatusBadge(req.status)}
                   </div>
                   <p className="text-xs text-muted-foreground line-clamp-2">{req.message}</p>
                   {req.admin_reply && (
-                    <div className="mt-2 p-3 rounded-md bg-primary/5 border border-primary/20">
-                      <p className="text-xs font-medium text-primary mb-1">Admin Reply:</p>
+                    <div className="mt-2 p-2 rounded-md bg-secondary border border-border">
+                      <p className="text-xs font-medium text-muted-foreground mb-0.5">Reply:</p>
                       <p className="text-sm text-foreground">{req.admin_reply}</p>
                     </div>
                   )}
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(req.created_at).toLocaleDateString()}
-                  </p>
                 </div>
               ))}
             </div>
@@ -202,7 +193,7 @@ export const HelpSection = ({ userId, username }: HelpSectionProps) => {
 
         {loading && (
           <div className="flex items-center justify-center py-4">
-            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
           </div>
         )}
       </CardContent>

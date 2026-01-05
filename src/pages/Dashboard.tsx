@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useCreditNotification } from "@/hooks/useCreditNotification";
 import { openCashfreeCheckout } from "@/lib/cashfree";
-import { CreditCard, Sparkles, Check, Loader2, ExternalLink } from "lucide-react";
+import { CreditCard, Check, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 interface User {
@@ -229,22 +229,15 @@ const Dashboard = () => {
       // Clear the URL params
       window.history.replaceState({}, '', '/dashboard');
 
-      if (status === 'PAID' || status === 'SUCCESS') {
-        // Verify payment and add credits
-        verifyPayment(orderId);
-      } else {
-        toast({
-          title: "Payment Failed",
-          description: "Your payment was not successful. Please try again.",
-          variant: "destructive",
-        });
-      }
+      // For any return, verify the payment - webhook may have already processed it
+      // The verify-payment endpoint handles "already completed" gracefully
+      verifyPayment(orderId);
     }
   }, [searchParams]);
 
   const [creditsAdded, setCreditsAdded] = useState<{ credits: number; newBalance: number } | null>(null);
 
-  const verifyPayment = async (orderId: string) => {
+  const verifyPayment = async (orderId: string, retryCount = 0) => {
     try {
       const { data, error } = await supabase.functions.invoke('verify-payment', {
         body: { orderId }
@@ -253,33 +246,48 @@ const Dashboard = () => {
       if (error) throw error;
 
       if (data.success && data.status === 'completed') {
-        setCreditsAdded({ credits: data.credits, newBalance: data.newBalance });
-        toast({
-          title: "🎉 Payment Successful!",
-          description: data.message,
-        });
-        loadUser(); // Reload user to get updated credits
-        // Auto-hide success message after 10 seconds
-        setTimeout(() => setCreditsAdded(null), 10000);
+        // Only show notification if realtime hasn't already shown it
+        if (!creditsAdded) {
+          setCreditsAdded({ credits: data.credits, newBalance: data.newBalance });
+          playNotificationSound();
+          toast({
+            title: "🎉 Payment Successful!",
+            description: data.message,
+          });
+          setTimeout(() => setCreditsAdded(null), 10000);
+        }
+        loadUser();
       } else if (data.status === 'pending' || data.status === 'ACTIVE') {
+        // Payment still processing - retry a few times as webhook might be processing
+        if (retryCount < 3) {
+          toast({
+            title: "Verifying Payment...",
+            description: "Please wait while we confirm your payment.",
+          });
+          setTimeout(() => verifyPayment(orderId, retryCount + 1), 2000);
+        } else {
+          toast({
+            title: "Payment Processing",
+            description: "Your payment is being processed. Credits will be added automatically.",
+          });
+        }
+      } else if (data.status === 'failed' || data.status === 'EXPIRED' || data.status === 'TERMINATED') {
         toast({
-          title: "Payment Pending",
-          description: "Your payment is being processed. Credits will be added shortly.",
-        });
-      } else {
-        toast({
-          title: "Payment Issue",
-          description: data.message || "There was an issue with your payment.",
+          title: "Payment Failed",
+          description: "Your payment was not successful. Please try again.",
           variant: "destructive",
         });
       }
     } catch (error) {
       console.error("Payment verification error:", error);
-      toast({
-        title: "Verification Error",
-        description: "Could not verify payment. Please contact support if credits are not added.",
-        variant: "destructive",
-      });
+      // Don't show error toast if credits were already added via realtime
+      if (!creditsAdded) {
+        toast({
+          title: "Verification Error",
+          description: "Could not verify payment. Credits will be added automatically if successful.",
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -349,7 +357,7 @@ const Dashboard = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -360,25 +368,25 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-background relative">
-      <div className="fixed inset-0 bg-grid opacity-30 pointer-events-none" />
+      <div className="fixed inset-0 bg-grid opacity-40 pointer-events-none" />
       
       <Navbar user={{ username: user.username, credits: user.credits }} onLogout={handleLogout} />
 
-      <main className="pt-24 pb-20 px-4">
-        <div className="container max-w-6xl mx-auto space-y-8">
+      <main className="pt-20 pb-16 px-4">
+        <div className="container max-w-4xl mx-auto space-y-6">
           {/* Credits Added Success Banner */}
           {creditsAdded && (
-            <div className="animate-fade-in p-4 rounded-xl bg-success/10 border border-success/30 flex items-center justify-between">
+            <div className="animate-fade-in p-4 rounded-lg bg-success/10 border border-success/30 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-success/20 flex items-center justify-center">
-                  <Check className="w-5 h-5 text-success" />
+                <div className="w-8 h-8 rounded-md bg-success/20 flex items-center justify-center flex-shrink-0">
+                  <Check className="w-4 h-4 text-success" />
                 </div>
                 <div>
-                  <p className="font-semibold text-success">
-                    +{creditsAdded.credits} Credits Added!
+                  <p className="font-medium text-success text-sm">
+                    +{creditsAdded.credits} Credits Added
                   </p>
-                  <p className="text-sm text-muted-foreground">
-                    Your new balance: <span className="font-mono font-bold text-foreground">{creditsAdded.newBalance}</span> credits
+                  <p className="text-xs text-muted-foreground">
+                    New balance: <span className="font-mono font-medium text-foreground">{creditsAdded.newBalance}</span>
                   </p>
                 </div>
               </div>
@@ -386,7 +394,7 @@ const Dashboard = () => {
                 variant="ghost" 
                 size="sm" 
                 onClick={() => setCreditsAdded(null)}
-                className="text-muted-foreground hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground flex-shrink-0"
               >
                 Dismiss
               </Button>
@@ -394,96 +402,76 @@ const Dashboard = () => {
           )}
 
           {/* Credit Display */}
-          <div className="animate-fade-in">
-            <CreditDisplay credits={user.credits} username={user.username} />
-          </div>
+          <CreditDisplay credits={user.credits} username={user.username} />
 
-          {/* Number Lookup */}
-          <div className="animate-fade-in" style={{ animationDelay: "0.1s" }}>
+          {/* Two column layout for lookup and history on larger screens */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <NumberLookup 
               userId={user.id}
               credits={user.credits} 
               onLookup={handleLookup}
               onHistoryUpdate={handleHistoryUpdate}
             />
-          </div>
-
-          {/* Search History */}
-          <div className="animate-fade-in" style={{ animationDelay: "0.15s" }}>
             <SearchHistory history={history} loading={historyLoading} />
           </div>
 
           {/* Order History */}
-          <div className="animate-fade-in" style={{ animationDelay: "0.18s" }}>
-            <OrderHistory 
-              orders={orders} 
-              loading={ordersLoading} 
-              onOrderVerified={() => {
-                loadUser();
-                if (user) loadOrders(user.id);
-              }} 
-            />
-          </div>
+          <OrderHistory 
+            orders={orders} 
+            loading={ordersLoading} 
+            onOrderVerified={() => {
+              loadUser();
+              if (user) loadOrders(user.id);
+            }} 
+          />
 
           {/* Buy Credits Section */}
-          <Card variant="glass" className="animate-fade-in" style={{ animationDelay: "0.2s" }}>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CreditCard className="w-5 h-5 text-primary" />
-                Buy More Credits
+          <Card className="animate-fade-in">
+            <CardHeader className="pb-4">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <CreditCard className="w-4 h-4" />
+                Buy Credits
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className={`grid gap-3 ${creditPacks.length <= 3 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-2 sm:grid-cols-4'}`}>
                 {creditPacks.map((pack) => (
                   <div
                     key={pack.id}
-                    className={`relative p-6 rounded-xl border transition-all duration-200 cursor-pointer hover:border-primary/50 ${
+                    className={`relative p-4 rounded-md border transition-colors cursor-pointer ${
                       pack.is_popular 
-                        ? "bg-primary/5 border-primary/30" 
-                        : "bg-secondary/30 border-border"
+                        ? "bg-secondary border-muted-foreground/30" 
+                        : "bg-secondary/30 border-border hover:border-muted-foreground/30"
                     } ${buyingCredits === pack.credits ? 'opacity-70' : ''}`}
                     onClick={() => !buyingCredits && handleBuyCredits(pack.credits, Number(pack.price))}
                   >
                     {pack.is_popular && (
-                      <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-semibold">
-                          <Sparkles className="w-3 h-3" />
-                          BEST VALUE
+                      <div className="absolute -top-2 left-1/2 -translate-x-1/2">
+                        <span className="px-2 py-0.5 rounded-md bg-foreground text-background text-xs font-medium">
+                          Popular
                         </span>
                       </div>
                     )}
-                    <div className="text-center space-y-3">
+                    <div className="text-center space-y-2 pt-1">
                       <div>
-                        <span className="text-3xl font-bold font-mono gradient-text">{pack.credits}</span>
-                        <span className="text-muted-foreground ml-1">credits</span>
+                        <span className="text-2xl font-bold font-mono text-foreground">{pack.credits}</span>
+                        <span className="text-muted-foreground text-sm ml-1">cr</span>
                       </div>
-                      <div className="text-2xl font-bold text-foreground">₹{Number(pack.price)}</div>
+                      <div className="text-lg font-semibold text-foreground">₹{Number(pack.price)}</div>
                       <p className="text-xs text-muted-foreground">
-                        ₹{(Number(pack.price) / pack.credits).toFixed(2)} per lookup
+                        ₹{(Number(pack.price) / pack.credits).toFixed(2)}/lookup
                       </p>
-                      <ul className="space-y-1 text-left">
-                        <li className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Check className="w-3 h-3 text-success" />
-                          Instant activation
-                        </li>
-                        <li className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Check className="w-3 h-3 text-success" />
-                          Never expires
-                        </li>
-                      </ul>
                       <Button 
-                        variant={pack.is_popular ? "glow" : "outline"} 
+                        variant={pack.is_popular ? "default" : "outline"} 
                         size="sm" 
-                        className="w-full mt-2"
+                        className="w-full"
                         disabled={!!buyingCredits}
                       >
                         {buyingCredits === pack.credits ? (
-                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          <Loader2 className="w-4 h-4 animate-spin" />
                         ) : (
-                          <ExternalLink className="w-4 h-4 mr-2" />
+                          "Buy"
                         )}
-                        Buy Now
                       </Button>
                     </div>
                   </div>
@@ -493,9 +481,7 @@ const Dashboard = () => {
           </Card>
 
           {/* Help Section */}
-          <div className="animate-fade-in" style={{ animationDelay: "0.25s" }}>
-            <HelpSection userId={user.id} username={user.username} />
-          </div>
+          <HelpSection userId={user.id} username={user.username} />
         </div>
       </main>
     </div>
