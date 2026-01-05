@@ -237,14 +237,14 @@ const Admin = () => {
     details: object
   ) => {
     try {
-      await supabase.from('audit_logs').insert([{
+      await supabase.from('audit_logs').insert({
         admin_user_id: authUser?.id || '00000000-0000-0000-0000-000000000000',
         admin_username: 'admin',
         action_type: actionType,
         target_user_id: targetUserId,
         target_username: targetUsername,
-        details: details as Record<string, unknown>,
-      }]);
+        details: JSON.parse(JSON.stringify(details)),
+      });
     } catch (error) {
       console.error("Error logging audit action:", error);
     }
