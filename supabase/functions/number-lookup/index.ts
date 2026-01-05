@@ -121,7 +121,11 @@ serve(async (req) => {
 
     console.log('API Response:', JSON.stringify(apiData));
 
-    if (!apiData.success || !apiData.result || apiData.result.length === 0) {
+    // Ensure result is an array
+    const resultArray = Array.isArray(apiData.result) ? apiData.result : 
+                        apiData.result ? [apiData.result] : [];
+
+    if (!apiData.success || resultArray.length === 0) {
       console.log('No data found for number - NOT deducting credits');
       // Decrement the rate limit counter since no valid result was found
       if (rateLimit) {
@@ -146,7 +150,7 @@ serve(async (req) => {
     }
 
     // Parse the response - get the first result that matches the searched number
-    const results = apiData.result;
+    const results = resultArray;
     const primaryResult = results.find((r: any) => r.mobile === phoneNumber) || results[0];
 
     // Format address - replace ! with spaces/commas
