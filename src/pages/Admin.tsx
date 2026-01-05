@@ -25,8 +25,12 @@ import {
   Receipt,
   MessageSquare,
   Reply,
-  Crown
+  Crown,
+  Settings,
+  Eye,
+  EyeOff
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 interface UserData {
@@ -98,6 +102,12 @@ const Admin = () => {
   // Help reply state
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
+  // Payment settings state
+  const [cashfreeMode, setCashfreeMode] = useState<'sandbox' | 'production'>('sandbox');
+  const [cashfreeAppId, setCashfreeAppId] = useState("");
+  const [cashfreeSecretKey, setCashfreeSecretKey] = useState("");
+  const [showSecretKey, setShowSecretKey] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -158,6 +168,23 @@ const Admin = () => {
 
       if (helpError) throw helpError;
       setHelpRequests(helpData || []);
+
+      // Load payment settings
+      const { data: settingsData, error: settingsError } = await supabase
+        .from('payment_settings')
+        .select('*');
+
+      if (!settingsError && settingsData) {
+        settingsData.forEach((setting: { setting_key: string; setting_value: string }) => {
+          if (setting.setting_key === 'cashfree_mode') {
+            setCashfreeMode(setting.setting_value as 'sandbox' | 'production');
+          } else if (setting.setting_key === 'cashfree_app_id') {
+            setCashfreeAppId(setting.setting_value);
+          } else if (setting.setting_key === 'cashfree_secret_key') {
+            setCashfreeSecretKey(setting.setting_value);
+          }
+        });
+      }
 
     } catch (error) {
       console.error("Error loading data:", error);
@@ -469,6 +496,41 @@ const Admin = () => {
       });
     } catch (error) {
       console.error("Error closing help request:", error);
+    }
+  };
+
+  const handleSavePaymentSettings = async () => {
+    setSavingSettings(true);
+    try {
+      // Update all settings
+      const updates = [
+        { setting_key: 'cashfree_mode', setting_value: cashfreeMode },
+        { setting_key: 'cashfree_app_id', setting_value: cashfreeAppId },
+        { setting_key: 'cashfree_secret_key', setting_value: cashfreeSecretKey },
+      ];
+
+      for (const update of updates) {
+        const { error } = await supabase
+          .from('payment_settings')
+          .update({ setting_value: update.setting_value })
+          .eq('setting_key', update.setting_key);
+
+        if (error) throw error;
+      }
+
+      toast({
+        title: "Settings Saved",
+        description: `Cashfree is now in ${cashfreeMode} mode.`,
+      });
+    } catch (error) {
+      console.error("Error saving payment settings:", error);
+      toast({
+        title: "Error",
+        description: "Failed to save payment settings",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingSettings(false);
     }
   };
 
@@ -953,6 +1015,85 @@ const Admin = () => {
                   </tbody>
                 </table>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Payment Settings */}
+          <Card variant="glass">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="w-5 h-5 text-primary" />
+                Payment Settings
+              </CardTitle>
+              <CardDescription>Configure Cashfree payment gateway</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Mode Toggle */}
+              <div className="flex items-center justify-between p-4 rounded-lg bg-secondary/30 border border-border">
+                <div>
+                  <p className="font-medium text-foreground">Payment Mode</p>
+                  <p className="text-sm text-muted-foreground">
+                    {cashfreeMode === 'sandbox' 
+                      ? 'Test mode - No real transactions' 
+                      : 'Live mode - Real transactions will be processed'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className={`text-sm ${cashfreeMode === 'sandbox' ? 'text-warning font-medium' : 'text-muted-foreground'}`}>
+                    Sandbox
+                  </span>
+                  <Switch
+                    checked={cashfreeMode === 'production'}
+                    onCheckedChange={(checked) => setCashfreeMode(checked ? 'production' : 'sandbox')}
+                  />
+                  <span className={`text-sm ${cashfreeMode === 'production' ? 'text-success font-medium' : 'text-muted-foreground'}`}>
+                    Production
+                  </span>
+                </div>
+              </div>
+
+              {/* API Credentials */}
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">App ID</label>
+                  <Input
+                    type="text"
+                    placeholder="Enter Cashfree App ID"
+                    value={cashfreeAppId}
+                    onChange={(e) => setCashfreeAppId(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Secret Key</label>
+                  <div className="relative">
+                    <Input
+                      type={showSecretKey ? "text" : "password"}
+                      placeholder="Enter Cashfree Secret Key"
+                      value={cashfreeSecretKey}
+                      onChange={(e) => setCashfreeSecretKey(e.target.value)}
+                      className="pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                      onClick={() => setShowSecretKey(!showSecretKey)}
+                    >
+                      {showSecretKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <Button onClick={handleSavePaymentSettings} disabled={savingSettings}>
+                {savingSettings ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <Settings className="w-4 h-4 mr-2" />
+                )}
+                Save Settings
+              </Button>
             </CardContent>
           </Card>
 

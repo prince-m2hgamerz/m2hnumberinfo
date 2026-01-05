@@ -7,9 +7,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const CASHFREE_API_URL = "https://sandbox.cashfree.com/pg";
-const API_VERSION = "2023-08-01";
-
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
@@ -19,8 +16,6 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const cashfreeAppId = Deno.env.get("CASHFREE_APP_ID")!;
-    const cashfreeSecret = Deno.env.get("CASHFREE_SECRET_KEY")!;
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -34,6 +29,46 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Get payment settings from database
+    const { data: settingsData, error: settingsError } = await supabase
+      .from('payment_settings')
+      .select('setting_key, setting_value');
+
+    if (settingsError) {
+      console.error("Error fetching payment settings:", settingsError);
+      return new Response(JSON.stringify({ error: "Failed to load payment settings" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Parse settings
+    const settings: Record<string, string> = {};
+    settingsData?.forEach((s: { setting_key: string; setting_value: string }) => {
+      settings[s.setting_key] = s.setting_value;
+    });
+
+    const cashfreeMode = settings['cashfree_mode'] || 'sandbox';
+    const cashfreeAppId = settings['cashfree_app_id'];
+    const cashfreeSecret = settings['cashfree_secret_key'];
+
+    if (!cashfreeAppId || !cashfreeSecret) {
+      console.error("Cashfree credentials not configured");
+      return new Response(JSON.stringify({ error: "Payment gateway not configured. Please contact admin." }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Set API URL based on mode
+    const CASHFREE_API_URL = cashfreeMode === 'production' 
+      ? "https://api.cashfree.com/pg" 
+      : "https://sandbox.cashfree.com/pg";
+    const API_VERSION = "2023-08-01";
+
+    console.log(`Using Cashfree ${cashfreeMode} mode`);
+    console.log("Using App ID:", cashfreeAppId?.substring(0, 10) + "...");
 
     // Verify user exists
     const { data: user, error: userError } = await supabase.from("users").select("*").eq("id", userId).single();
@@ -70,7 +105,6 @@ serve(async (req) => {
     };
 
     console.log("Creating Cashfree order:", JSON.stringify(cashfreePayload));
-    console.log("Using App ID:", cashfreeAppId?.substring(0, 10) + "...");
 
     const cashfreeResponse = await fetch(`${CASHFREE_API_URL}/orders`, {
       method: "POST",
