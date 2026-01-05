@@ -181,15 +181,17 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Num
           <div className="animate-fade-in space-y-3 pt-4 border-t border-border">
             <p className="text-sm text-muted-foreground flex items-center gap-2">
               <Users className="w-4 h-4" />
-              Found {resultCount} result{resultCount > 1 ? 's' : ''}
+              Found {resultCount} result{resultCount > 1 ? 's' : ''} 
+              <span className="text-xs opacity-60">• Swipe to see more</span>
             </p>
             
-            <ScrollArea className={results.length > 1 ? "h-[350px] pr-4" : ""}>
-              <div className="space-y-3">
+            {/* Horizontal scroll container for multiple results */}
+            <div className="overflow-x-auto pb-2 -mx-2 px-2 scrollbar-thin">
+              <div className={`flex gap-3 ${results.length > 1 ? 'w-max' : 'w-full'}`}>
                 {results.map((result, index) => (
                   <div 
                     key={index} 
-                    className="p-4 rounded-md bg-secondary/30 border border-border hover:border-muted-foreground/30 transition-colors animate-fade-in"
+                    className={`p-4 rounded-md bg-secondary/30 border border-border hover:border-muted-foreground/30 transition-colors animate-fade-in flex-shrink-0 ${results.length > 1 ? 'w-[320px] sm:w-[380px]' : 'w-full'}`}
                     style={{ animationDelay: `${index * 0.05}s` }}
                   >
                     <div className="flex items-center gap-3 mb-3">
@@ -201,11 +203,11 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Num
                         <p className="text-sm text-muted-foreground font-mono">{result.mobile}</p>
                       </div>
                       {index === 0 && results.length > 1 && (
-                        <span className="px-2 py-0.5 text-xs rounded-md bg-secondary text-muted-foreground">Primary</span>
+                        <span className="px-2 py-0.5 text-xs rounded-md bg-secondary text-muted-foreground whitespace-nowrap">Primary</span>
                       )}
                     </div>
                     
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="space-y-2">
                       {result.fatherName && (
                         <ResultItem icon={<UserCircle className="w-3.5 h-3.5" />} label="Father" value={result.fatherName} />
                       )}
@@ -216,14 +218,24 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Num
                       {result.email && (
                         <ResultItem icon={<Mail className="w-3.5 h-3.5" />} label="Email" value={result.email} />
                       )}
-                      <div className="sm:col-span-2">
-                        <ResultItem icon={<MapPin className="w-3.5 h-3.5" />} label="Address" value={result.address} />
-                      </div>
+                      <ResultItem icon={<MapPin className="w-3.5 h-3.5" />} label="Address" value={result.address} />
                     </div>
                   </div>
                 ))}
               </div>
-            </ScrollArea>
+            </div>
+            
+            {/* Scroll indicator for multiple results */}
+            {results.length > 1 && (
+              <div className="flex justify-center gap-1.5 pt-1">
+                {results.map((_, index) => (
+                  <div 
+                    key={index} 
+                    className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30"
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </CardContent>
