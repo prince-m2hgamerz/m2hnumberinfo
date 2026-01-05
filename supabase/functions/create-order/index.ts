@@ -167,6 +167,7 @@ serve(async (req) => {
         paymentSessionId: paymentSessionId,
         paymentLink: paymentLink,
         cfOrderId: cashfreeData.cf_order_id,
+        cashfreeMode,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

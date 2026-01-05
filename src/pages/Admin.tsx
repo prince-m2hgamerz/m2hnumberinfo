@@ -113,6 +113,12 @@ const Admin = () => {
 
   const ADMIN_PASSWORD = "m2hgamerz"; // Admin password
 
+  const maskSecret = (value: string) => {
+    if (!value) return "";
+    const last4 = value.slice(-4);
+    return `••••••••••••••${last4}`;
+  };
+
   const loadData = async () => {
     setRefreshing(true);
     try {
@@ -1078,6 +1084,25 @@ const Admin = () => {
                     >
                       {showSecretKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </Button>
+                  </div>
+
+                  <div className="rounded-lg bg-secondary/30 border border-border p-3 text-xs text-muted-foreground space-y-1">
+                    <p>
+                      Saved App ID:{" "}
+                      <span className="font-mono text-foreground">
+                        {cashfreeAppId ? cashfreeAppId : "—"}
+                      </span>
+                    </p>
+                    <p>
+                      Saved Secret Key:{" "}
+                      <span className="font-mono text-foreground">
+                        {cashfreeSecretKey
+                          ? showSecretKey
+                            ? cashfreeSecretKey
+                            : maskSecret(cashfreeSecretKey)
+                          : "—"}
+                      </span>
+                    </p>
                   </div>
                 </div>
               </div>
