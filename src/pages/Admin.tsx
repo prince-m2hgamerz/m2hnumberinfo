@@ -21,8 +21,13 @@ import {
   Package,
   Pencil,
   Trash2,
-  Star
+  Star,
+  Receipt,
+  MessageSquare,
+  Reply,
+  Crown
 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 
 interface UserData {
   id: string;
@@ -45,6 +50,29 @@ interface CreditPack {
   price: number;
   is_popular: boolean;
   is_active: boolean;
+  is_featured: boolean;
+}
+
+interface Order {
+  id: string;
+  order_id: string;
+  user_id: string;
+  credits: number;
+  amount: number;
+  status: string;
+  created_at: string;
+  username?: string;
+}
+
+interface HelpRequest {
+  id: string;
+  user_id: string;
+  username: string;
+  subject: string;
+  message: string;
+  status: string;
+  admin_reply: string | null;
+  created_at: string;
 }
 
 const Admin = () => {
@@ -54,6 +82,8 @@ const Admin = () => {
   const [users, setUsers] = useState<UserData[]>([]);
   const [stats, setStats] = useState<StatsData | null>(null);
   const [creditPacks, setCreditPacks] = useState<CreditPack[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [helpRequests, setHelpRequests] = useState<HelpRequest[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [creditsToAdd, setCreditsToAdd] = useState("");
@@ -63,7 +93,11 @@ const Admin = () => {
   const [packCredits, setPackCredits] = useState("");
   const [packPrice, setPackPrice] = useState("");
   const [packPopular, setPackPopular] = useState(false);
+  const [packFeatured, setPackFeatured] = useState(false);
   const [showPackForm, setShowPackForm] = useState(false);
+  // Help reply state
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -98,6 +132,32 @@ const Admin = () => {
 
       if (packsError) throw packsError;
       setCreditPacks(packsData || []);
+
+      // Load orders with user info
+      const { data: ordersData, error: ordersError } = await supabase
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (ordersError) throw ordersError;
+      
+      // Enrich orders with usernames
+      const enrichedOrders = (ordersData || []).map(order => {
+        const user = usersData?.find(u => u.id === order.user_id);
+        return { ...order, username: user?.username || 'Unknown' };
+      });
+      setOrders(enrichedOrders);
+
+      // Load help requests
+      const { data: helpData, error: helpError } = await supabase
+        .from('help_requests')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (helpError) throw helpError;
+      setHelpRequests(helpData || []);
 
     } catch (error) {
       console.error("Error loading data:", error);
@@ -235,14 +295,14 @@ const Admin = () => {
         // Update existing pack
         const { error } = await supabase
           .from('credit_packs')
-          .update({ credits, price, is_popular: packPopular })
+          .update({ credits, price, is_popular: packPopular, is_featured: packFeatured })
           .eq('id', editingPack.id);
 
         if (error) throw error;
 
         setCreditPacks(creditPacks.map(p => 
           p.id === editingPack.id 
-            ? { ...p, credits, price, is_popular: packPopular }
+            ? { ...p, credits, price, is_popular: packPopular, is_featured: packFeatured }
             : p
         ));
 
@@ -254,7 +314,7 @@ const Admin = () => {
         // Create new pack
         const { data, error } = await supabase
           .from('credit_packs')
-          .insert({ credits, price, is_popular: packPopular })
+          .insert({ credits, price, is_popular: packPopular, is_featured: packFeatured })
           .select()
           .single();
 
@@ -336,6 +396,7 @@ const Admin = () => {
     setPackCredits("");
     setPackPrice("");
     setPackPopular(false);
+    setPackFeatured(false);
     setShowPackForm(false);
   };
 
@@ -344,7 +405,71 @@ const Admin = () => {
     setPackCredits(pack.credits.toString());
     setPackPrice(pack.price.toString());
     setPackPopular(pack.is_popular);
+    setPackFeatured(pack.is_featured);
     setShowPackForm(true);
+  };
+
+  const handleReplyToHelp = async (requestId: string) => {
+    if (!replyText.trim()) {
+      toast({
+        title: "Empty Reply",
+        description: "Please enter a reply message.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('help_requests')
+        .update({ admin_reply: replyText.trim(), status: 'replied' })
+        .eq('id', requestId);
+
+      if (error) throw error;
+
+      setHelpRequests(helpRequests.map(r => 
+        r.id === requestId 
+          ? { ...r, admin_reply: replyText.trim(), status: 'replied' }
+          : r
+      ));
+
+      toast({
+        title: "Reply Sent",
+        description: "Your reply has been sent to the user.",
+      });
+
+      setReplyingTo(null);
+      setReplyText("");
+    } catch (error) {
+      console.error("Error replying to help request:", error);
+      toast({
+        title: "Error",
+        description: "Failed to send reply",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleCloseHelpRequest = async (requestId: string) => {
+    try {
+      const { error } = await supabase
+        .from('help_requests')
+        .update({ status: 'closed' })
+        .eq('id', requestId);
+
+      if (error) throw error;
+
+      setHelpRequests(helpRequests.map(r => 
+        r.id === requestId ? { ...r, status: 'closed' } : r
+      ));
+
+      toast({
+        title: "Request Closed",
+        description: "Help request has been closed.",
+      });
+    } catch (error) {
+      console.error("Error closing help request:", error);
+    }
   };
 
   const filteredUsers = users.filter(user =>
@@ -635,17 +760,27 @@ const Admin = () => {
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm text-muted-foreground">Popular Badge</label>
-                      <Button
-                        type="button"
-                        variant={packPopular ? "default" : "outline"}
-                        size="sm"
-                        className="w-full"
-                        onClick={() => setPackPopular(!packPopular)}
-                      >
-                        <Star className={`w-4 h-4 mr-1 ${packPopular ? "fill-current" : ""}`} />
-                        {packPopular ? "Popular" : "Not Popular"}
-                      </Button>
+                      <label className="text-sm text-muted-foreground">Badges</label>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant={packPopular ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setPackPopular(!packPopular)}
+                        >
+                          <Star className={`w-4 h-4 mr-1 ${packPopular ? "fill-current" : ""}`} />
+                          Popular
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={packFeatured ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setPackFeatured(!packFeatured)}
+                        >
+                          <Crown className={`w-4 h-4 mr-1 ${packFeatured ? "fill-current" : ""}`} />
+                          Featured
+                        </Button>
+                      </div>
                     </div>
                   </div>
                   <div className="flex gap-2">
@@ -675,12 +810,18 @@ const Admin = () => {
                     {creditPacks.map((pack) => (
                       <tr key={pack.id} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
                         <td className="py-3 px-4">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-mono text-primary font-bold">{pack.credits}</span>
                             {pack.is_popular && (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">
                                 <Star className="w-3 h-3 fill-current" />
                                 Popular
+                              </span>
+                            )}
+                            {pack.is_featured && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-warning text-xs">
+                                <Crown className="w-3 h-3 fill-current" />
+                                Featured
                               </span>
                             )}
                           </div>
@@ -741,6 +882,185 @@ const Admin = () => {
                   </tbody>
                 </table>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Order History */}
+          <Card variant="glass">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Receipt className="w-5 h-5 text-primary" />
+                Order History
+              </CardTitle>
+              <CardDescription>View all payment transactions</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Order ID</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">User</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Credits</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Amount</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orders.map((order) => (
+                      <tr key={order.id} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
+                        <td className="py-3 px-4">
+                          <span className="font-mono text-xs text-muted-foreground">{order.order_id.slice(0, 20)}...</span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="font-medium text-foreground">{order.username}</span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="font-mono text-primary">{order.credits}</span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="font-medium text-foreground">₹{order.amount}</span>
+                        </td>
+                        <td className="py-3 px-4">
+                          {order.status === 'completed' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-success/10 text-success text-xs">
+                              <CheckCircle className="w-3 h-3" />
+                              Completed
+                            </span>
+                          ) : order.status === 'failed' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-destructive/10 text-destructive text-xs">
+                              Failed
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-warning/10 text-warning text-xs">
+                              Pending
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-muted-foreground">
+                          {new Date(order.created_at).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                    {orders.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-muted-foreground">
+                          No orders found
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Help Requests */}
+          <Card variant="glass">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MessageSquare className="w-5 h-5 text-primary" />
+                Help Requests
+              </CardTitle>
+              <CardDescription>Manage user support requests</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {helpRequests.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">No help requests</p>
+              ) : (
+                <div className="space-y-4">
+                  {helpRequests.map((request) => (
+                    <div
+                      key={request.id}
+                      className="p-4 rounded-lg bg-secondary/30 border border-border/50 space-y-3"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <h5 className="font-medium text-foreground">{request.subject}</h5>
+                          <p className="text-xs text-muted-foreground">
+                            From: {request.username} • {new Date(request.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {request.status === 'open' && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-warning/10 text-warning text-xs">
+                              Open
+                            </span>
+                          )}
+                          {request.status === 'replied' && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-success/10 text-success text-xs">
+                              Replied
+                            </span>
+                          )}
+                          {request.status === 'closed' && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-muted text-muted-foreground text-xs">
+                              Closed
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <p className="text-sm text-foreground">{request.message}</p>
+                      
+                      {request.admin_reply && (
+                        <div className="p-3 rounded-md bg-primary/5 border border-primary/20">
+                          <p className="text-xs font-medium text-primary mb-1">Your Reply:</p>
+                          <p className="text-sm text-foreground">{request.admin_reply}</p>
+                        </div>
+                      )}
+
+                      {replyingTo === request.id ? (
+                        <div className="space-y-2">
+                          <Textarea
+                            placeholder="Type your reply..."
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            rows={3}
+                          />
+                          <div className="flex gap-2">
+                            <Button size="sm" onClick={() => handleReplyToHelp(request.id)}>
+                              <Reply className="w-3 h-3 mr-1" />
+                              Send Reply
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => {
+                              setReplyingTo(null);
+                              setReplyText("");
+                            }}>
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2">
+                          {request.status !== 'closed' && (
+                            <>
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => {
+                                  setReplyingTo(request.id);
+                                  setReplyText(request.admin_reply || "");
+                                }}
+                              >
+                                <Reply className="w-3 h-3 mr-1" />
+                                {request.admin_reply ? "Edit Reply" : "Reply"}
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="ghost"
+                                onClick={() => handleCloseHelpRequest(request.id)}
+                              >
+                                Close
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
