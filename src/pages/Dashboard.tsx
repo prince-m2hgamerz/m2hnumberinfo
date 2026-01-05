@@ -10,11 +10,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useCreditNotification } from "@/hooks/useCreditNotification";
+import { useAuth } from "@/contexts/AuthContext";
 import { openCashfreeCheckout } from "@/lib/cashfree";
 import { CreditCard, Check, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
-interface User {
+interface UserData {
   id: string;
   username: string;
   credits: number;
@@ -47,7 +48,7 @@ interface Order {
 }
 
 const Dashboard = () => {
-  const [user, setUser] = useState<User | null>(null);
+  const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [history, setHistory] = useState<SearchHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -55,26 +56,33 @@ const Dashboard = () => {
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [buyingCredits, setBuyingCredits] = useState<number | null>(null);
   const [creditPacks, setCreditPacks] = useState<CreditPack[]>([]);
+  const [creditsAdded, setCreditsAdded] = useState<{ credits: number; newBalance: number } | null>(null);
+  
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const { playNotificationSound } = useCreditNotification();
+  const { user: authUser, loading: authLoading, signOut } = useAuth();
   
   const selectedPlan = location.state?.selectedPlan;
 
-  const loadUser = useCallback(async () => {
-    const storedUsername = localStorage.getItem("username");
-    if (!storedUsername) {
-      navigate("/auth");
-      return;
+  // Redirect if not authenticated
+  useEffect(() => {
+    if (!authLoading && !authUser) {
+      navigate("/auth", { replace: true });
     }
+  }, [authUser, authLoading, navigate]);
+
+  const loadUserData = useCallback(async () => {
+    if (!authUser) return;
 
     try {
+      // Check if user exists in users table
       const { data, error } = await supabase
         .from('users')
         .select('*')
-        .eq('username', storedUsername)
+        .eq('id', authUser.id)
         .maybeSingle();
 
       if (error) throw error;
@@ -86,17 +94,34 @@ const Dashboard = () => {
             description: "Your account has been banned. Please contact support.",
             variant: "destructive",
           });
-          localStorage.removeItem("username");
+          await signOut();
           navigate("/auth");
           return;
         }
-        setUser(data);
+        setUserData(data);
       } else {
-        localStorage.removeItem("username");
-        navigate("/auth");
+        // Create user entry if it doesn't exist
+        const username = authUser.email?.split('@')[0] || 'user';
+        const { data: newUser, error: createError } = await supabase
+          .from('users')
+          .insert({ 
+            id: authUser.id,
+            username,
+            credits: 5 
+          })
+          .select()
+          .single();
+
+        if (createError) throw createError;
+        setUserData(newUser);
+        
+        toast({
+          title: "Welcome!",
+          description: "Your account has been set up with 5 free credits.",
+        });
       }
     } catch (error) {
-      console.error("Error loading user:", error);
+      console.error("Error loading user data:", error);
       toast({
         title: "Error",
         description: "Failed to load user data",
@@ -105,7 +130,7 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, [navigate, toast]);
+  }, [authUser, navigate, toast, signOut]);
 
   const loadHistory = useCallback(async (userId: string) => {
     try {
@@ -144,32 +169,32 @@ const Dashboard = () => {
   }, []);
 
   useEffect(() => {
-    loadUser();
-    // Load credit packs
-    const loadCreditPacks = async () => {
-      const { data } = await supabase
-        .from('credit_packs')
-        .select('*')
-        .eq('is_active', true)
-        .order('credits', { ascending: true });
-      if (data) setCreditPacks(data);
-    };
-    loadCreditPacks();
-  }, [loadUser]);
+    if (authUser && !authLoading) {
+      loadUserData();
+      // Load credit packs
+      const loadCreditPacks = async () => {
+        const { data } = await supabase
+          .from('credit_packs')
+          .select('*')
+          .eq('is_active', true)
+          .order('credits', { ascending: true });
+        if (data) setCreditPacks(data);
+      };
+      loadCreditPacks();
+    }
+  }, [authUser, authLoading, loadUserData]);
 
   useEffect(() => {
-    if (user) {
-      loadHistory(user.id);
-      loadOrders(user.id);
+    if (userData) {
+      loadHistory(userData.id);
+      loadOrders(userData.id);
     }
-  }, [user, loadHistory, loadOrders]);
+  }, [userData, loadHistory, loadOrders]);
 
   // Subscribe to real-time credit updates
   useEffect(() => {
-    if (!user) return;
+    if (!userData) return;
 
-    console.log("Setting up realtime subscription for user:", user.id);
-    
     const channel = supabase
       .channel('user-credits-updates')
       .on(
@@ -178,47 +203,35 @@ const Dashboard = () => {
           event: 'UPDATE',
           schema: 'public',
           table: 'users',
-          filter: `id=eq.${user.id}`
+          filter: `id=eq.${userData.id}`
         },
         (payload) => {
-          console.log('Realtime update received:', payload);
-          const newCredits = (payload.new as User).credits;
-          const oldCredits = (payload.old as User).credits;
+          const newCredits = (payload.new as UserData).credits;
+          const oldCredits = (payload.old as UserData).credits;
           
           if (newCredits > oldCredits) {
             const addedCredits = newCredits - oldCredits;
-            console.log(`Credits added via webhook: +${addedCredits}`);
             
-            // Play notification sound
             playNotificationSound();
-            
-            // Show notification
             setCreditsAdded({ credits: addedCredits, newBalance: newCredits });
             toast({
-              title: "🎉 Credits Added!",
-              description: `+${addedCredits} credits have been added to your account via payment.`,
+              title: "Credits Added!",
+              description: `+${addedCredits} credits added to your account.`,
             });
             
-            // Update local user state
-            setUser(prev => prev ? { ...prev, credits: newCredits } : null);
+            setUserData(prev => prev ? { ...prev, credits: newCredits } : null);
+            loadOrders(userData.id);
             
-            // Refresh orders to show updated status
-            loadOrders(user.id);
-            
-            // Auto-hide after 10 seconds
             setTimeout(() => setCreditsAdded(null), 10000);
           }
         }
       )
-      .subscribe((status) => {
-        console.log('Realtime subscription status:', status);
-      });
+      .subscribe();
 
     return () => {
-      console.log('Cleaning up realtime subscription');
       supabase.removeChannel(channel);
     };
-  }, [user?.id, toast, loadOrders]);
+  }, [userData?.id, toast, loadOrders, playNotificationSound]);
 
   // Handle payment return
   useEffect(() => {
@@ -226,16 +239,10 @@ const Dashboard = () => {
     const status = searchParams.get('status');
 
     if (orderId && status) {
-      // Clear the URL params
       window.history.replaceState({}, '', '/dashboard');
-
-      // For any return, verify the payment - webhook may have already processed it
-      // The verify-payment endpoint handles "already completed" gracefully
       verifyPayment(orderId);
     }
   }, [searchParams]);
-
-  const [creditsAdded, setCreditsAdded] = useState<{ credits: number; newBalance: number } | null>(null);
 
   const verifyPayment = async (orderId: string, retryCount = 0) => {
     try {
@@ -246,19 +253,17 @@ const Dashboard = () => {
       if (error) throw error;
 
       if (data.success && data.status === 'completed') {
-        // Only show notification if realtime hasn't already shown it
         if (!creditsAdded) {
           setCreditsAdded({ credits: data.credits, newBalance: data.newBalance });
           playNotificationSound();
           toast({
-            title: "🎉 Payment Successful!",
+            title: "Payment Successful!",
             description: data.message,
           });
           setTimeout(() => setCreditsAdded(null), 10000);
         }
-        loadUser();
+        loadUserData();
       } else if (data.status === 'pending' || data.status === 'ACTIVE') {
-        // Payment still processing - retry a few times as webhook might be processing
         if (retryCount < 3) {
           toast({
             title: "Verifying Payment...",
@@ -268,7 +273,7 @@ const Dashboard = () => {
         } else {
           toast({
             title: "Payment Processing",
-            description: "Your payment is being processed. Credits will be added automatically.",
+            description: "Credits will be added automatically.",
           });
         }
       } else if (data.status === 'failed' || data.status === 'EXPIRED' || data.status === 'TERMINATED') {
@@ -280,46 +285,50 @@ const Dashboard = () => {
       }
     } catch (error) {
       console.error("Payment verification error:", error);
-      // Don't show error toast if credits were already added via realtime
       if (!creditsAdded) {
         toast({
           title: "Verification Error",
-          description: "Could not verify payment. Credits will be added automatically if successful.",
+          description: "Credits will be added automatically if successful.",
           variant: "destructive",
         });
       }
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("username");
+  const handleLogout = async () => {
+    await signOut();
     toast({
       title: "Logged out",
-      description: "You have been successfully logged out.",
+      description: "You have been logged out successfully.",
     });
     navigate("/");
   };
 
   const handleLookup = (newCredits: number) => {
-    if (user) {
-      setUser({ ...user, credits: newCredits });
+    if (userData) {
+      setUserData({ ...userData, credits: newCredits });
     }
   };
 
   const handleHistoryUpdate = () => {
-    if (user) {
-      loadHistory(user.id);
+    if (userData) {
+      loadHistory(userData.id);
     }
   };
 
   const handleBuyCredits = async (credits: number, price: number) => {
-    if (!user) return;
+    if (!userData || !authUser) return;
 
     setBuyingCredits(credits);
 
     try {
       const { data, error } = await supabase.functions.invoke("create-order", {
-        body: { userId: user.id, credits, amount: price },
+        body: { 
+          userId: userData.id, 
+          credits, 
+          amount: price,
+          email: authUser.email 
+        },
       });
 
       if (error) throw error;
@@ -338,15 +347,13 @@ const Dashboard = () => {
 
       toast({
         title: "Payment Page Opened",
-        description:
-          "Complete your payment in the new tab. Credits will be added automatically.",
+        description: "Complete your payment in the new tab.",
       });
     } catch (error) {
       console.error("Error creating order:", error);
       toast({
         title: "Payment Error",
-        description:
-          error instanceof Error ? error.message : "Failed to initiate payment",
+        description: error instanceof Error ? error.message : "Failed to initiate payment",
         variant: "destructive",
       });
     } finally {
@@ -354,7 +361,7 @@ const Dashboard = () => {
     }
   };
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -362,15 +369,17 @@ const Dashboard = () => {
     );
   }
 
-  if (!user) {
+  if (!authUser || !userData) {
     return null;
   }
+
+  const displayName = authUser.email?.split('@')[0] || 'User';
 
   return (
     <div className="min-h-screen bg-background relative">
       <div className="fixed inset-0 bg-grid opacity-40 pointer-events-none" />
       
-      <Navbar user={{ username: user.username, credits: user.credits }} onLogout={handleLogout} />
+      <Navbar user={{ username: displayName, credits: userData.credits }} onLogout={handleLogout} />
 
       <main className="pt-20 pb-16 px-4">
         <div className="container max-w-4xl mx-auto space-y-6">
@@ -402,13 +411,13 @@ const Dashboard = () => {
           )}
 
           {/* Credit Display */}
-          <CreditDisplay credits={user.credits} username={user.username} />
+          <CreditDisplay credits={userData.credits} username={displayName} />
 
-          {/* Two column layout for lookup and history on larger screens */}
+          {/* Two column layout */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <NumberLookup 
-              userId={user.id}
-              credits={user.credits} 
+              userId={userData.id}
+              credits={userData.credits} 
               onLookup={handleLookup}
               onHistoryUpdate={handleHistoryUpdate}
             />
@@ -420,8 +429,8 @@ const Dashboard = () => {
             orders={orders} 
             loading={ordersLoading} 
             onOrderVerified={() => {
-              loadUser();
-              if (user) loadOrders(user.id);
+              loadUserData();
+              if (userData) loadOrders(userData.id);
             }} 
           />
 
@@ -481,7 +490,7 @@ const Dashboard = () => {
           </Card>
 
           {/* Help Section */}
-          <HelpSection userId={user.id} username={user.username} />
+          <HelpSection userId={userData.id} username={displayName} />
         </div>
       </main>
     </div>

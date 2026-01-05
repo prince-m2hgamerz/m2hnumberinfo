@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import { Navbar } from "@/components/Navbar";
 import { FeaturesSection } from "@/components/FeaturesSection";
 import { PricingSection } from "@/components/PricingSection";
@@ -7,14 +8,29 @@ import { ArrowRight, Phone, MapPin, User } from "lucide-react";
 
 const Index = () => {
   const navigate = useNavigate();
+  const { user, signOut } = useAuth();
 
   const handleGetStarted = () => {
-    navigate("/auth");
+    if (user) {
+      navigate("/dashboard");
+    } else {
+      navigate("/auth");
+    }
   };
 
   const handleSelectPlan = (credits: number, price: number) => {
-    navigate("/auth", { state: { selectedPlan: { credits, price } } });
+    if (user) {
+      navigate("/dashboard", { state: { selectedPlan: { credits, price } } });
+    } else {
+      navigate("/auth", { state: { selectedPlan: { credits, price } } });
+    }
   };
+
+  const handleLogout = async () => {
+    await signOut();
+  };
+
+  const displayName = user?.email?.split('@')[0];
 
   return (
     <div className="min-h-screen bg-background relative">
@@ -22,7 +38,7 @@ const Index = () => {
       <div className="fixed inset-0 bg-grid opacity-40 pointer-events-none" />
       <div className="hero-glow" />
       
-      <Navbar />
+      <Navbar user={user ? { username: displayName || 'User', credits: 0 } : undefined} onLogout={handleLogout} />
 
       {/* Hero Section */}
       <section className="pt-32 pb-24 px-4 relative">
@@ -51,7 +67,7 @@ const Index = () => {
           {/* CTA Buttons */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 animate-fade-in" style={{ animationDelay: "0.2s" }}>
             <Button onClick={handleGetStarted} size="lg" className="w-full sm:w-auto">
-              Start Free
+              {user ? "Go to Dashboard" : "Start Free"}
               <ArrowRight className="w-4 h-4" />
             </Button>
             <Button 
