@@ -562,32 +562,34 @@ const Admin = () => {
       
       <Navbar />
 
-      <main className="pt-24 pb-20 px-4">
-        <div className="container max-w-6xl mx-auto space-y-8">
-          <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold text-foreground">Admin Dashboard</h1>
+      <main className="pt-24 pb-20 px-3 sm:px-4">
+        <div className="container max-w-6xl mx-auto space-y-6 sm:space-y-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground">Admin Dashboard</h1>
             <Button variant="outline" size="sm" onClick={loadData} disabled={refreshing}>
               <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 stagger-children">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4 stagger-children">
             <StatCard icon={<Users className="w-5 h-5" />} label="Total Users" value={users.length} />
             <StatCard icon={<SearchIcon className="w-5 h-5" />} label="Total Lookups" value={stats?.total_checks || 0} />
             <StatCard icon={<CreditIcon className="w-5 h-5" />} label="Payments" value={stats?.total_payments || 0} />
             <StatCard icon={<BarChart3 className="w-5 h-5" />} label="Revenue" value={`₹${stats?.total_revenue || 0}`} />
           </div>
 
-          <Tabs defaultValue="users" className="space-y-6">
-            <TabsList className="grid grid-cols-2 md:grid-cols-6 gap-2 h-auto p-1">
-              <TabsTrigger value="users" className="text-xs md:text-sm">Users</TabsTrigger>
-              <TabsTrigger value="packs" className="text-xs md:text-sm">Credit Packs</TabsTrigger>
-              <TabsTrigger value="orders" className="text-xs md:text-sm">Orders</TabsTrigger>
-              <TabsTrigger value="analytics" className="text-xs md:text-sm">Analytics</TabsTrigger>
-              <TabsTrigger value="security" className="text-xs md:text-sm">Security</TabsTrigger>
-              <TabsTrigger value="settings" className="text-xs md:text-sm">Settings</TabsTrigger>
-            </TabsList>
+          <Tabs defaultValue="users" className="space-y-4 sm:space-y-6">
+            <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
+              <TabsList className="inline-flex min-w-max gap-1 p-1 h-auto">
+                <TabsTrigger value="users" className="text-xs sm:text-sm px-2 sm:px-3">Users</TabsTrigger>
+                <TabsTrigger value="packs" className="text-xs sm:text-sm px-2 sm:px-3">Packs</TabsTrigger>
+                <TabsTrigger value="orders" className="text-xs sm:text-sm px-2 sm:px-3">Orders</TabsTrigger>
+                <TabsTrigger value="analytics" className="text-xs sm:text-sm px-2 sm:px-3">Analytics</TabsTrigger>
+                <TabsTrigger value="security" className="text-xs sm:text-sm px-2 sm:px-3">Security</TabsTrigger>
+                <TabsTrigger value="settings" className="text-xs sm:text-sm px-2 sm:px-3">Settings</TabsTrigger>
+              </TabsList>
+            </div>
 
             {/* Users Tab */}
             <TabsContent value="users" className="space-y-6">
@@ -610,7 +612,59 @@ const Admin = () => {
                     />
                   </div>
 
-                  <div className="overflow-x-auto">
+                  {/* Mobile card view */}
+                  <div className="block sm:hidden space-y-3">
+                    {filteredUsers.map((user) => (
+                      <div key={user.id} className="p-3 rounded-lg bg-secondary/30 border border-border space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-foreground">{user.username}</span>
+                          {user.banned ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-destructive/10 text-destructive text-xs">
+                              <Ban className="w-3 h-3" />Banned
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-success/10 text-success text-xs">
+                              <CheckCircle className="w-3 h-3" />Active
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Credits: <span className="font-mono text-primary">{user.credits}</span></span>
+                          <span className="text-muted-foreground">{new Date(user.created_at).toLocaleDateString()}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {selectedUser === user.id ? (
+                            <div className="flex items-center gap-2 w-full">
+                              <Input
+                                type="number"
+                                placeholder="Credits"
+                                value={creditsToAdd}
+                                onChange={(e) => setCreditsToAdd(e.target.value)}
+                                className="flex-1 h-8"
+                              />
+                              <Button size="sm" variant="success" onClick={() => handleAddCredits(user.id)}>Add</Button>
+                              <Button size="sm" variant="ghost" onClick={() => setSelectedUser(null)}>×</Button>
+                            </div>
+                          ) : (
+                            <>
+                              <Button size="sm" variant="outline" className="flex-1" onClick={() => setSelectedUser(user.id)}>
+                                <Plus className="w-3 h-3 mr-1" />Credits
+                              </Button>
+                              <Button size="sm" variant={user.banned ? "success" : "destructive"} className="flex-1" onClick={() => handleToggleBan(user.id)}>
+                                {user.banned ? <><CheckCircle className="w-3 h-3 mr-1" />Unban</> : <><Ban className="w-3 h-3 mr-1" />Ban</>}
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {filteredUsers.length === 0 && (
+                      <p className="py-8 text-center text-muted-foreground">No users found</p>
+                    )}
+                  </div>
+
+                  {/* Desktop table view */}
+                  <div className="hidden sm:block overflow-x-auto">
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-border">
@@ -1003,12 +1057,12 @@ const Admin = () => {
 
 const StatCard = ({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) => (
   <Card variant="glass" className="glow-hover">
-    <CardContent className="p-6">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">{icon}</div>
-        <div>
-          <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="text-2xl font-bold font-mono text-foreground">{value}</p>
+    <CardContent className="p-3 sm:p-6">
+      <div className="flex items-center gap-2 sm:gap-3">
+        <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">{icon}</div>
+        <div className="min-w-0">
+          <p className="text-xs sm:text-sm text-muted-foreground truncate">{label}</p>
+          <p className="text-lg sm:text-2xl font-bold font-mono text-foreground truncate">{value}</p>
         </div>
       </div>
     </CardContent>
