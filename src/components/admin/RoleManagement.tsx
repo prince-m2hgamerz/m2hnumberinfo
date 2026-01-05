@@ -83,12 +83,15 @@ export const RoleManagement = ({ onAuditLog }: RoleManagementProps) => {
   const addRole = async (userId: string, username: string, role: 'admin' | 'moderator') => {
     setAddingRole(userId);
     try {
-      const { error } = await supabase
-        .from('user_roles')
-        .insert({ user_id: userId, role });
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const response = await supabase.functions.invoke('manage-roles', {
+        body: { action: 'add', userId, role }
+      });
 
-      if (error) {
-        if (error.code === '23505') {
+      if (response.error) {
+        const errorMessage = response.error.message || 'Failed to add role';
+        if (errorMessage.includes('duplicate') || errorMessage.includes('23505')) {
           toast({
             title: "Role Exists",
             description: `${username} already has the ${role} role.`,
@@ -97,7 +100,7 @@ export const RoleManagement = ({ onAuditLog }: RoleManagementProps) => {
           setAddingRole(null);
           return;
         }
-        throw error;
+        throw new Error(errorMessage);
       }
 
       onAuditLog('role_added', userId, username, { role });
@@ -112,7 +115,7 @@ export const RoleManagement = ({ onAuditLog }: RoleManagementProps) => {
       console.error("Error adding role:", error);
       toast({
         title: "Error",
-        description: "Failed to add role",
+        description: error instanceof Error ? error.message : "Failed to add role",
         variant: "destructive",
       });
     } finally {
@@ -122,12 +125,11 @@ export const RoleManagement = ({ onAuditLog }: RoleManagementProps) => {
 
   const removeRole = async (roleId: string, userId: string, username: string, role: string) => {
     try {
-      const { error } = await supabase
-        .from('user_roles')
-        .delete()
-        .eq('id', roleId);
+      const response = await supabase.functions.invoke('manage-roles', {
+        body: { action: 'remove', userId, role }
+      });
 
-      if (error) throw error;
+      if (response.error) throw new Error(response.error.message);
 
       onAuditLog('role_removed', userId, username, { role });
 
@@ -141,7 +143,7 @@ export const RoleManagement = ({ onAuditLog }: RoleManagementProps) => {
       console.error("Error removing role:", error);
       toast({
         title: "Error",
-        description: "Failed to remove role",
+        description: error instanceof Error ? error.message : "Failed to remove role",
         variant: "destructive",
       });
     }
