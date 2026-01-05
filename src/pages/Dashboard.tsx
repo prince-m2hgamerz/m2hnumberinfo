@@ -153,6 +153,8 @@ const Dashboard = () => {
     }
   }, [searchParams]);
 
+  const [creditsAdded, setCreditsAdded] = useState<{ credits: number; newBalance: number } | null>(null);
+
   const verifyPayment = async (orderId: string) => {
     try {
       const { data, error } = await supabase.functions.invoke('verify-payment', {
@@ -162,19 +164,33 @@ const Dashboard = () => {
       if (error) throw error;
 
       if (data.success && data.status === 'completed') {
+        setCreditsAdded({ credits: data.credits, newBalance: data.newBalance });
         toast({
-          title: "Payment Successful!",
+          title: "🎉 Payment Successful!",
           description: data.message,
         });
         loadUser(); // Reload user to get updated credits
-      } else {
+        // Auto-hide success message after 10 seconds
+        setTimeout(() => setCreditsAdded(null), 10000);
+      } else if (data.status === 'pending' || data.status === 'ACTIVE') {
         toast({
           title: "Payment Pending",
           description: "Your payment is being processed. Credits will be added shortly.",
         });
+      } else {
+        toast({
+          title: "Payment Issue",
+          description: data.message || "There was an issue with your payment.",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error("Payment verification error:", error);
+      toast({
+        title: "Verification Error",
+        description: "Could not verify payment. Please contact support if credits are not added.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -261,6 +277,33 @@ const Dashboard = () => {
 
       <main className="pt-24 pb-20 px-4">
         <div className="container max-w-6xl mx-auto space-y-8">
+          {/* Credits Added Success Banner */}
+          {creditsAdded && (
+            <div className="animate-fade-in p-4 rounded-xl bg-success/10 border border-success/30 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-success/20 flex items-center justify-center">
+                  <Check className="w-5 h-5 text-success" />
+                </div>
+                <div>
+                  <p className="font-semibold text-success">
+                    +{creditsAdded.credits} Credits Added!
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Your new balance: <span className="font-mono font-bold text-foreground">{creditsAdded.newBalance}</span> credits
+                  </p>
+                </div>
+              </div>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setCreditsAdded(null)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Dismiss
+              </Button>
+            </div>
+          )}
+
           {/* Credit Display */}
           <div className="animate-fade-in">
             <CreditDisplay credits={user.credits} username={user.username} />
