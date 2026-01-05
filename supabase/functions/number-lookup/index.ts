@@ -122,10 +122,24 @@ serve(async (req) => {
     console.log('API Response:', JSON.stringify(apiData));
 
     if (!apiData.success || !apiData.result || apiData.result.length === 0) {
+      console.log('No data found for number - NOT deducting credits');
+      // Decrement the rate limit counter since no valid result was found
+      if (rateLimit) {
+        const windowStart = new Date(rateLimit.window_start);
+        const timeDiff = now.getTime() - windowStart.getTime();
+        if (timeDiff < RATE_LIMIT_WINDOW_MS && rateLimit.request_count > 0) {
+          await supabase
+            .from('rate_limits')
+            .update({ request_count: rateLimit.request_count })
+            .eq('user_id', userId);
+        }
+      }
       return new Response(
         JSON.stringify({ 
           error: 'No data found for this number',
-          success: false 
+          success: false,
+          noDeduction: true,
+          remainingCredits: user.credits
         }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );

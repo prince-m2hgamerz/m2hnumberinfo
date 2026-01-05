@@ -83,6 +83,12 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Num
             message: data.message,
             remainingTime: data.remainingTime
           });
+        } else if (data.noDeduction) {
+          // No data found - credits not deducted
+          toast({
+            title: "No Records Found",
+            description: "No data found for this number. No credits were deducted.",
+          });
         } else {
           throw new Error(data.error);
         }
