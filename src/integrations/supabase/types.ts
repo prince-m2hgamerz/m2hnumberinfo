@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      credit_packs: {
+        Row: {
+          created_at: string
+          credits: number
+          id: string
+          is_active: boolean
+          is_popular: boolean
+          price: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          credits: number
+          id?: string
+          is_active?: boolean
+          is_popular?: boolean
+          price: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          credits?: number
+          id?: string
+          is_active?: boolean
+          is_popular?: boolean
+          price?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       orders: {
         Row: {
           amount: number

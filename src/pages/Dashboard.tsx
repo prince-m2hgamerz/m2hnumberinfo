@@ -27,11 +27,12 @@ interface SearchHistoryItem {
   created_at: string;
 }
 
-const creditPacks = [
-  { credits: 10, price: 5 },
-  { credits: 50, price: 30, popular: true },
-  { credits: 100, price: 80 },
-];
+interface CreditPack {
+  id: string;
+  credits: number;
+  price: number;
+  is_popular: boolean;
+}
 
 const Dashboard = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -39,6 +40,7 @@ const Dashboard = () => {
   const [history, setHistory] = useState<SearchHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [buyingCredits, setBuyingCredits] = useState<number | null>(null);
+  const [creditPacks, setCreditPacks] = useState<CreditPack[]>([]);
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -110,6 +112,16 @@ const Dashboard = () => {
 
   useEffect(() => {
     loadUser();
+    // Load credit packs
+    const loadCreditPacks = async () => {
+      const { data } = await supabase
+        .from('credit_packs')
+        .select('*')
+        .eq('is_active', true)
+        .order('credits', { ascending: true });
+      if (data) setCreditPacks(data);
+    };
+    loadCreditPacks();
   }, [loadUser]);
 
   useEffect(() => {
@@ -280,15 +292,15 @@ const Dashboard = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {creditPacks.map((pack) => (
                   <div
-                    key={pack.credits}
+                    key={pack.id}
                     className={`relative p-6 rounded-xl border transition-all duration-200 cursor-pointer hover:border-primary/50 ${
-                      pack.popular 
+                      pack.is_popular 
                         ? "bg-primary/5 border-primary/30" 
                         : "bg-secondary/30 border-border"
                     } ${buyingCredits === pack.credits ? 'opacity-70' : ''}`}
-                    onClick={() => !buyingCredits && handleBuyCredits(pack.credits, pack.price)}
+                    onClick={() => !buyingCredits && handleBuyCredits(pack.credits, Number(pack.price))}
                   >
-                    {pack.popular && (
+                    {pack.is_popular && (
                       <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                         <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-semibold">
                           <Sparkles className="w-3 h-3" />
@@ -301,9 +313,9 @@ const Dashboard = () => {
                         <span className="text-3xl font-bold font-mono gradient-text">{pack.credits}</span>
                         <span className="text-muted-foreground ml-1">credits</span>
                       </div>
-                      <div className="text-2xl font-bold text-foreground">₹{pack.price}</div>
+                      <div className="text-2xl font-bold text-foreground">₹{Number(pack.price)}</div>
                       <p className="text-xs text-muted-foreground">
-                        ₹{(pack.price / pack.credits).toFixed(2)} per lookup
+                        ₹{(Number(pack.price) / pack.credits).toFixed(2)} per lookup
                       </p>
                       <ul className="space-y-1 text-left">
                         <li className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -316,7 +328,7 @@ const Dashboard = () => {
                         </li>
                       </ul>
                       <Button 
-                        variant={pack.popular ? "glow" : "outline"} 
+                        variant={pack.is_popular ? "glow" : "outline"} 
                         size="sm" 
                         className="w-full mt-2"
                         disabled={!!buyingCredits}
