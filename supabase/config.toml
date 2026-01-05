@@ -1,1 +1,13 @@
 project_id = "fjyztcfzntlbqgqjefel"
+
+[functions.number-lookup]
+verify_jwt = false
+
+[functions.create-order]
+verify_jwt = false
+
+[functions.payment-webhook]
+verify_jwt = false
+
+[functions.verify-payment]
+verify_jwt = false

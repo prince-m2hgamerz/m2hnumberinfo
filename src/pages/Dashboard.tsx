@@ -1,16 +1,29 @@
-import { useState, useEffect } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useState, useEffect, useCallback } from "react";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { Navbar } from "@/components/Navbar";
 import { CreditDisplay } from "@/components/CreditDisplay";
 import { NumberLookup } from "@/components/NumberLookup";
+import { SearchHistory } from "@/components/SearchHistory";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { CreditCard, Sparkles, Check } from "lucide-react";
+import { CreditCard, Sparkles, Check, Loader2, ExternalLink } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface User {
+  id: string;
   username: string;
   credits: number;
+  banned: boolean;
+}
+
+interface SearchHistoryItem {
+  id: string;
+  phone_number: string;
+  name: string | null;
+  address: string | null;
+  circle: string | null;
+  created_at: string;
 }
 
 const creditPacks = [
@@ -21,32 +34,138 @@ const creditPacks = [
 
 const Dashboard = () => {
   const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [history, setHistory] = useState<SearchHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [buyingCredits, setBuyingCredits] = useState<number | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
   
   const selectedPlan = location.state?.selectedPlan;
 
-  useEffect(() => {
-    // Check for user in localStorage
-    const storedUser = localStorage.getItem("user");
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    } else {
+  const loadUser = useCallback(async () => {
+    const storedUsername = localStorage.getItem("username");
+    if (!storedUsername) {
       navigate("/auth");
+      return;
     }
 
-    // If there's a selected plan from navigation, show payment prompt
-    if (selectedPlan) {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('username', storedUsername)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (data) {
+        if (data.banned) {
+          toast({
+            title: "Account Banned",
+            description: "Your account has been banned. Please contact support.",
+            variant: "destructive",
+          });
+          localStorage.removeItem("username");
+          navigate("/auth");
+          return;
+        }
+        setUser(data);
+      } else {
+        localStorage.removeItem("username");
+        navigate("/auth");
+      }
+    } catch (error) {
+      console.error("Error loading user:", error);
       toast({
-        title: "Complete Your Purchase",
-        description: `Select the ${selectedPlan.credits} credits pack below to proceed with payment.`,
+        title: "Error",
+        description: "Failed to load user data",
+        variant: "destructive",
       });
+    } finally {
+      setLoading(false);
     }
-  }, [navigate, selectedPlan, toast]);
+  }, [navigate, toast]);
+
+  const loadHistory = useCallback(async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('search_history')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+      setHistory(data || []);
+    } catch (error) {
+      console.error("Error loading history:", error);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadUser();
+  }, [loadUser]);
+
+  useEffect(() => {
+    if (user) {
+      loadHistory(user.id);
+    }
+  }, [user, loadHistory]);
+
+  // Handle payment return
+  useEffect(() => {
+    const orderId = searchParams.get('order_id');
+    const status = searchParams.get('status');
+
+    if (orderId && status) {
+      // Clear the URL params
+      window.history.replaceState({}, '', '/dashboard');
+
+      if (status === 'PAID' || status === 'SUCCESS') {
+        // Verify payment and add credits
+        verifyPayment(orderId);
+      } else {
+        toast({
+          title: "Payment Failed",
+          description: "Your payment was not successful. Please try again.",
+          variant: "destructive",
+        });
+      }
+    }
+  }, [searchParams]);
+
+  const verifyPayment = async (orderId: string) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('verify-payment', {
+        body: { orderId }
+      });
+
+      if (error) throw error;
+
+      if (data.success && data.status === 'completed') {
+        toast({
+          title: "Payment Successful!",
+          description: data.message,
+        });
+        loadUser(); // Reload user to get updated credits
+      } else {
+        toast({
+          title: "Payment Pending",
+          description: "Your payment is being processed. Credits will be added shortly.",
+        });
+      }
+    } catch (error) {
+      console.error("Payment verification error:", error);
+    }
+  };
 
   const handleLogout = () => {
-    localStorage.removeItem("user");
+    localStorage.removeItem("username");
     toast({
       title: "Logged out",
       description: "You have been successfully logged out.",
@@ -54,35 +173,70 @@ const Dashboard = () => {
     navigate("/");
   };
 
-  const handleLookup = () => {
+  const handleLookup = (newCredits: number) => {
     if (user) {
-      const updatedUser = { ...user, credits: user.credits - 1 };
-      setUser(updatedUser);
-      localStorage.setItem("user", JSON.stringify(updatedUser));
+      setUser({ ...user, credits: newCredits });
     }
   };
 
-  const handleBuyCredits = (credits: number, price: number) => {
-    // In production, this would initiate the Cashfree payment flow
-    toast({
-      title: "Payment Integration Required",
-      description: `To purchase ${credits} credits for ₹${price}, the payment gateway needs to be connected.`,
-    });
+  const handleHistoryUpdate = () => {
+    if (user) {
+      loadHistory(user.id);
+    }
   };
 
-  if (!user) {
+  const handleBuyCredits = async (credits: number, price: number) => {
+    if (!user) return;
+
+    setBuyingCredits(credits);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('create-order', {
+        body: { userId: user.id, credits, amount: price }
+      });
+
+      if (error) throw error;
+
+      if (data.paymentLink) {
+        // Open payment link in new tab
+        window.open(data.paymentLink, '_blank');
+        toast({
+          title: "Payment Page Opened",
+          description: "Complete your payment in the new tab. Credits will be added automatically.",
+        });
+      } else if (data.paymentSessionId) {
+        // Fallback to session ID
+        window.open(`https://payments.cashfree.com/order/#${data.paymentSessionId}`, '_blank');
+      }
+    } catch (error) {
+      console.error("Error creating order:", error);
+      toast({
+        title: "Payment Error",
+        description: error instanceof Error ? error.message : "Failed to initiate payment",
+        variant: "destructive",
+      });
+    } finally {
+      setBuyingCredits(null);
+    }
+  };
+
+  if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full" />
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
+  }
+
+  if (!user) {
+    return null;
   }
 
   return (
     <div className="min-h-screen bg-background relative">
       <div className="fixed inset-0 bg-grid opacity-30 pointer-events-none" />
       
-      <Navbar user={user} onLogout={handleLogout} />
+      <Navbar user={{ username: user.username, credits: user.credits }} onLogout={handleLogout} />
 
       <main className="pt-24 pb-20 px-4">
         <div className="container max-w-6xl mx-auto space-y-8">
@@ -93,7 +247,17 @@ const Dashboard = () => {
 
           {/* Number Lookup */}
           <div className="animate-fade-in" style={{ animationDelay: "0.1s" }}>
-            <NumberLookup credits={user.credits} onLookup={handleLookup} />
+            <NumberLookup 
+              userId={user.id}
+              credits={user.credits} 
+              onLookup={handleLookup}
+              onHistoryUpdate={handleHistoryUpdate}
+            />
+          </div>
+
+          {/* Search History */}
+          <div className="animate-fade-in" style={{ animationDelay: "0.15s" }}>
+            <SearchHistory history={history} loading={historyLoading} />
           </div>
 
           {/* Buy Credits Section */}
@@ -113,8 +277,8 @@ const Dashboard = () => {
                       pack.popular 
                         ? "bg-primary/5 border-primary/30" 
                         : "bg-secondary/30 border-border"
-                    }`}
-                    onClick={() => handleBuyCredits(pack.credits, pack.price)}
+                    } ${buyingCredits === pack.credits ? 'opacity-70' : ''}`}
+                    onClick={() => !buyingCredits && handleBuyCredits(pack.credits, pack.price)}
                   >
                     {pack.popular && (
                       <div className="absolute -top-3 left-1/2 -translate-x-1/2">
@@ -147,7 +311,13 @@ const Dashboard = () => {
                         variant={pack.popular ? "glow" : "outline"} 
                         size="sm" 
                         className="w-full mt-2"
+                        disabled={!!buyingCredits}
                       >
+                        {buyingCredits === pack.credits ? (
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        ) : (
+                          <ExternalLink className="w-4 h-4 mr-2" />
+                        )}
                         Buy Now
                       </Button>
                     </div>
