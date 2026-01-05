@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { User, ArrowRight, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -20,7 +21,9 @@ const Auth = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!username.trim() || username.length < 3) {
+    const trimmedUsername = username.trim().toLowerCase();
+
+    if (!trimmedUsername || trimmedUsername.length < 3) {
       toast({
         title: "Invalid Username",
         description: "Username must be at least 3 characters long.",
@@ -29,7 +32,7 @@ const Auth = () => {
       return;
     }
 
-    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+    if (!/^[a-zA-Z0-9_]+$/.test(trimmedUsername)) {
       toast({
         title: "Invalid Username",
         description: "Username can only contain letters, numbers, and underscores.",
@@ -40,22 +43,88 @@ const Auth = () => {
 
     setLoading(true);
 
-    // Simulate authentication - in production this would call the backend
-    setTimeout(() => {
-      // Store user in localStorage for demo
-      const userData = { username: username.toLowerCase(), credits: isLogin ? 10 : 5 };
-      localStorage.setItem("user", JSON.stringify(userData));
-      
+    try {
+      if (isLogin) {
+        // Check if user exists
+        const { data: existingUser, error } = await supabase
+          .from('users')
+          .select('*')
+          .eq('username', trimmedUsername)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (!existingUser) {
+          toast({
+            title: "User Not Found",
+            description: "No account found with this username. Try signing up.",
+            variant: "destructive",
+          });
+          setLoading(false);
+          return;
+        }
+
+        if (existingUser.banned) {
+          toast({
+            title: "Account Banned",
+            description: "Your account has been banned. Please contact support.",
+            variant: "destructive",
+          });
+          setLoading(false);
+          return;
+        }
+
+        localStorage.setItem("username", trimmedUsername);
+        toast({
+          title: "Welcome back!",
+          description: `Logged in as ${trimmedUsername}`,
+        });
+        navigate("/dashboard", { state: { selectedPlan } });
+
+      } else {
+        // Check if username already exists
+        const { data: existingUser, error: checkError } = await supabase
+          .from('users')
+          .select('username')
+          .eq('username', trimmedUsername)
+          .maybeSingle();
+
+        if (checkError) throw checkError;
+
+        if (existingUser) {
+          toast({
+            title: "Username Taken",
+            description: "This username is already registered. Try logging in.",
+            variant: "destructive",
+          });
+          setLoading(false);
+          return;
+        }
+
+        // Create new user with 5 free credits
+        const { error: createError } = await supabase
+          .from('users')
+          .insert({ username: trimmedUsername, credits: 5 });
+
+        if (createError) throw createError;
+
+        localStorage.setItem("username", trimmedUsername);
+        toast({
+          title: "Account created!",
+          description: "Your account has been created with 5 free credits.",
+        });
+        navigate("/dashboard", { state: { selectedPlan } });
+      }
+    } catch (error) {
+      console.error("Auth error:", error);
       toast({
-        title: isLogin ? "Welcome back!" : "Account created!",
-        description: isLogin 
-          ? `Logged in as ${username}` 
-          : `Your account has been created with 5 free credits.`,
+        title: "Error",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
       });
-      
+    } finally {
       setLoading(false);
-      navigate("/dashboard", { state: { selectedPlan } });
-    }, 1000);
+    }
   };
 
   return (

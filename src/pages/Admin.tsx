@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 import { 
   Shield, 
   Lock, 
@@ -15,36 +16,78 @@ import {
   Ban,
   CheckCircle,
   BarChart3,
-  Loader2
+  Loader2,
+  RefreshCw
 } from "lucide-react";
 
-// Demo data for admin panel
-const demoUsers = [
-  { username: "john_doe", credits: 25, banned: false, lastCheck: "2024-01-15" },
-  { username: "jane_smith", credits: 100, banned: false, lastCheck: "2024-01-14" },
-  { username: "bob_wilson", credits: 0, banned: true, lastCheck: "2024-01-10" },
-  { username: "alice_johnson", credits: 50, banned: false, lastCheck: "2024-01-15" },
-];
+interface UserData {
+  id: string;
+  username: string;
+  credits: number;
+  banned: boolean;
+  created_at: string;
+  updated_at: string;
+}
 
-const demoStats = {
-  totalUsers: 4,
-  totalChecks: 1234,
-  totalPayments: 56,
-  totalRevenue: 4500,
-};
+interface StatsData {
+  total_checks: number;
+  total_payments: number;
+  total_revenue: number;
+}
 
 const Admin = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [users, setUsers] = useState(demoUsers);
+  const [users, setUsers] = useState<UserData[]>([]);
+  const [stats, setStats] = useState<StatsData | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [creditsToAdd, setCreditsToAdd] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const ADMIN_PASSWORD = "admin123"; // In production, this would be server-side
+  const ADMIN_PASSWORD = "admin123"; // In production, this should be server-side validated
+
+  const loadData = async () => {
+    setRefreshing(true);
+    try {
+      // Load users
+      const { data: usersData, error: usersError } = await supabase
+        .from('users')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (usersError) throw usersError;
+      setUsers(usersData || []);
+
+      // Load stats
+      const { data: statsData, error: statsError } = await supabase
+        .from('stats')
+        .select('*')
+        .single();
+
+      if (statsError && statsError.code !== 'PGRST116') throw statsError;
+      setStats(statsData);
+
+    } catch (error) {
+      console.error("Error loading data:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load admin data",
+        variant: "destructive",
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadData();
+    }
+  }, [isAuthenticated]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,7 +111,7 @@ const Admin = () => {
     }, 500);
   };
 
-  const handleAddCredits = (username: string) => {
+  const handleAddCredits = async (userId: string) => {
     const credits = parseInt(creditsToAdd);
     if (isNaN(credits) || credits <= 0) {
       toast({
@@ -79,33 +122,70 @@ const Admin = () => {
       return;
     }
 
-    setUsers(users.map(user => 
-      user.username === username 
-        ? { ...user, credits: user.credits + credits }
-        : user
-    ));
+    try {
+      const user = users.find(u => u.id === userId);
+      if (!user) return;
 
-    toast({
-      title: "Credits Added",
-      description: `Added ${credits} credits to ${username}.`,
-    });
+      const { error } = await supabase
+        .from('users')
+        .update({ credits: user.credits + credits })
+        .eq('id', userId);
 
-    setCreditsToAdd("");
-    setSelectedUser(null);
+      if (error) throw error;
+
+      setUsers(users.map(u => 
+        u.id === userId 
+          ? { ...u, credits: u.credits + credits }
+          : u
+      ));
+
+      toast({
+        title: "Credits Added",
+        description: `Added ${credits} credits to ${user.username}.`,
+      });
+
+      setCreditsToAdd("");
+      setSelectedUser(null);
+    } catch (error) {
+      console.error("Error adding credits:", error);
+      toast({
+        title: "Error",
+        description: "Failed to add credits",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleToggleBan = (username: string) => {
-    setUsers(users.map(user => 
-      user.username === username 
-        ? { ...user, banned: !user.banned }
-        : user
-    ));
+  const handleToggleBan = async (userId: string) => {
+    try {
+      const user = users.find(u => u.id === userId);
+      if (!user) return;
 
-    const user = users.find(u => u.username === username);
-    toast({
-      title: user?.banned ? "User Unbanned" : "User Banned",
-      description: `${username} has been ${user?.banned ? "unbanned" : "banned"}.`,
-    });
+      const { error } = await supabase
+        .from('users')
+        .update({ banned: !user.banned })
+        .eq('id', userId);
+
+      if (error) throw error;
+
+      setUsers(users.map(u => 
+        u.id === userId 
+          ? { ...u, banned: !u.banned }
+          : u
+      ));
+
+      toast({
+        title: user.banned ? "User Unbanned" : "User Banned",
+        description: `${user.username} has been ${user.banned ? "unbanned" : "banned"}.`,
+      });
+    } catch (error) {
+      console.error("Error toggling ban:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update user status",
+        variant: "destructive",
+      });
+    }
   };
 
   const filteredUsers = users.filter(user =>
@@ -182,27 +262,36 @@ const Admin = () => {
 
       <main className="pt-24 pb-20 px-4">
         <div className="container max-w-6xl mx-auto space-y-8">
+          {/* Header with refresh */}
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-bold text-foreground">Admin Dashboard</h1>
+            <Button variant="outline" size="sm" onClick={loadData} disabled={refreshing}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
+
           {/* Stats Overview */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 stagger-children">
             <StatCard 
               icon={<Users className="w-5 h-5" />} 
               label="Total Users" 
-              value={demoStats.totalUsers} 
+              value={users.length} 
             />
             <StatCard 
               icon={<SearchIcon className="w-5 h-5" />} 
               label="Total Lookups" 
-              value={demoStats.totalChecks} 
+              value={stats?.total_checks || 0} 
             />
             <StatCard 
               icon={<CreditIcon className="w-5 h-5" />} 
               label="Payments" 
-              value={demoStats.totalPayments} 
+              value={stats?.total_payments || 0} 
             />
             <StatCard 
               icon={<BarChart3 className="w-5 h-5" />} 
               label="Revenue" 
-              value={`₹${demoStats.totalRevenue}`} 
+              value={`₹${stats?.total_revenue || 0}`} 
             />
           </div>
 
@@ -235,13 +324,13 @@ const Admin = () => {
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Username</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Credits</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Last Activity</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Joined</th>
                       <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredUsers.map((user) => (
-                      <tr key={user.username} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
+                      <tr key={user.id} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
                         <td className="py-3 px-4">
                           <span className="font-medium text-foreground">{user.username}</span>
                         </td>
@@ -262,11 +351,11 @@ const Admin = () => {
                           )}
                         </td>
                         <td className="py-3 px-4 text-sm text-muted-foreground">
-                          {user.lastCheck}
+                          {new Date(user.created_at).toLocaleDateString()}
                         </td>
                         <td className="py-3 px-4">
                           <div className="flex items-center justify-end gap-2">
-                            {selectedUser === user.username ? (
+                            {selectedUser === user.id ? (
                               <div className="flex items-center gap-2">
                                 <Input
                                   type="number"
@@ -278,7 +367,7 @@ const Admin = () => {
                                 <Button 
                                   size="sm" 
                                   variant="success"
-                                  onClick={() => handleAddCredits(user.username)}
+                                  onClick={() => handleAddCredits(user.id)}
                                 >
                                   Add
                                 </Button>
@@ -295,7 +384,7 @@ const Admin = () => {
                                 <Button 
                                   size="sm" 
                                   variant="outline"
-                                  onClick={() => setSelectedUser(user.username)}
+                                  onClick={() => setSelectedUser(user.id)}
                                 >
                                   <Plus className="w-3 h-3 mr-1" />
                                   Credits
@@ -303,7 +392,7 @@ const Admin = () => {
                                 <Button 
                                   size="sm" 
                                   variant={user.banned ? "success" : "destructive"}
-                                  onClick={() => handleToggleBan(user.username)}
+                                  onClick={() => handleToggleBan(user.id)}
                                 >
                                   {user.banned ? (
                                     <>
@@ -323,6 +412,13 @@ const Admin = () => {
                         </td>
                       </tr>
                     ))}
+                    {filteredUsers.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-muted-foreground">
+                          No users found
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>

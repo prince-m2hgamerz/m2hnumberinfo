@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Loader2, User, Phone, MapPin, Radio } from "lucide-react";
+import { Search, Loader2, User, Phone, MapPin, Radio, AlertCircle, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 interface NumberResult {
   name: string;
@@ -13,15 +14,33 @@ interface NumberResult {
 }
 
 interface NumberLookupProps {
+  userId: string;
   credits: number;
-  onLookup: () => void;
+  onLookup: (newCredits: number) => void;
+  onHistoryUpdate: () => void;
 }
 
-export const NumberLookup = ({ credits, onLookup }: NumberLookupProps) => {
+export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: NumberLookupProps) => {
   const [number, setNumber] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<NumberResult | null>(null);
+  const [rateLimitError, setRateLimitError] = useState<{ message: string; remainingTime: number } | null>(null);
   const { toast } = useToast();
+
+  // Countdown timer for rate limit
+  useEffect(() => {
+    if (rateLimitError && rateLimitError.remainingTime > 0) {
+      const timer = setInterval(() => {
+        setRateLimitError(prev => {
+          if (!prev || prev.remainingTime <= 1) {
+            return null;
+          }
+          return { ...prev, remainingTime: prev.remainingTime - 1 };
+        });
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [rateLimitError]);
 
   const handleLookup = async () => {
     if (!/^\d{10}$/.test(number)) {
@@ -44,22 +63,45 @@ export const NumberLookup = ({ credits, onLookup }: NumberLookupProps) => {
 
     setLoading(true);
     setResult(null);
+    setRateLimitError(null);
 
-    // Simulate API call - in production this would call the edge function
-    setTimeout(() => {
-      setResult({
-        name: "Demo User",
-        mobile: number,
-        address: "Demo Address, City, State",
-        circle: "Demo Circle",
+    try {
+      const { data, error } = await supabase.functions.invoke('number-lookup', {
+        body: { userId, phoneNumber: number }
       });
-      onLookup();
-      setLoading(false);
+
+      if (error) throw error;
+
+      if (data.error) {
+        if (data.remainingTime) {
+          setRateLimitError({
+            message: data.message,
+            remainingTime: data.remainingTime
+          });
+        } else {
+          throw new Error(data.error);
+        }
+        return;
+      }
+
+      setResult(data.data);
+      onLookup(data.remainingCredits);
+      onHistoryUpdate();
+      
       toast({
         title: "Lookup Successful",
         description: "1 credit has been deducted from your account.",
       });
-    }, 1500);
+    } catch (error) {
+      console.error('Lookup error:', error);
+      toast({
+        title: "Lookup Failed",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -71,6 +113,18 @@ export const NumberLookup = ({ credits, onLookup }: NumberLookupProps) => {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
+        {rateLimitError && (
+          <div className="flex items-center gap-3 p-4 rounded-lg bg-warning/10 border border-warning/30 animate-fade-in">
+            <Clock className="w-5 h-5 text-warning" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-warning">Rate limit reached</p>
+              <p className="text-xs text-muted-foreground">
+                Please wait <span className="font-mono font-bold text-warning">{rateLimitError.remainingTime}s</span> before trying again
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="flex gap-3">
           <Input
             type="tel"
@@ -82,7 +136,7 @@ export const NumberLookup = ({ credits, onLookup }: NumberLookupProps) => {
           />
           <Button 
             onClick={handleLookup} 
-            disabled={loading || number.length !== 10}
+            disabled={loading || number.length !== 10 || !!rateLimitError}
             variant="glow"
             size="lg"
           >
