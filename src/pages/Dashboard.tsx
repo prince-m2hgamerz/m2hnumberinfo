@@ -219,7 +219,7 @@ const Dashboard = () => {
 
       await openCashfreeCheckout({
         paymentSessionId,
-        mode: "production",
+        mode: (data?.cashfreeMode ?? "production") as "sandbox" | "production",
         redirectTarget: "_blank",
       });
 
