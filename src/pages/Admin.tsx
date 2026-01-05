@@ -6,6 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { RoleManagement } from "@/components/admin/RoleManagement";
+import { AuditLogs } from "@/components/admin/AuditLogs";
+import { AnalyticsDashboard } from "@/components/admin/AnalyticsDashboard";
+import { BulkOperations } from "@/components/admin/BulkOperations";
 import { 
   Shield, 
   Lock, 
@@ -32,6 +37,7 @@ import {
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface UserData {
   id: string;
@@ -92,26 +98,25 @@ const Admin = () => {
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [creditsToAdd, setCreditsToAdd] = useState("");
   const [refreshing, setRefreshing] = useState(false);
-  // Credit pack form state
   const [editingPack, setEditingPack] = useState<CreditPack | null>(null);
   const [packCredits, setPackCredits] = useState("");
   const [packPrice, setPackPrice] = useState("");
   const [packPopular, setPackPopular] = useState(false);
   const [packFeatured, setPackFeatured] = useState(false);
   const [showPackForm, setShowPackForm] = useState(false);
-  // Help reply state
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
-  // Payment settings state
   const [cashfreeMode, setCashfreeMode] = useState<'sandbox' | 'production'>('sandbox');
   const [cashfreeAppId, setCashfreeAppId] = useState("");
   const [cashfreeSecretKey, setCashfreeSecretKey] = useState("");
   const [showSecretKey, setShowSecretKey] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
+  
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user: authUser } = useAuth();
 
-  const ADMIN_PASSWORD = "m2hgamerz"; // Admin password
+  const ADMIN_PASSWORD = "m2hgamerz";
 
   const maskSecret = (value: string) => {
     if (!value) return "";
@@ -122,7 +127,6 @@ const Admin = () => {
   const loadData = async () => {
     setRefreshing(true);
     try {
-      // Load users
       const { data: usersData, error: usersError } = await supabase
         .from('users')
         .select('*')
@@ -131,7 +135,6 @@ const Admin = () => {
       if (usersError) throw usersError;
       setUsers(usersData || []);
 
-      // Load stats
       const { data: statsData, error: statsError } = await supabase
         .from('stats')
         .select('*')
@@ -140,7 +143,6 @@ const Admin = () => {
       if (statsError && statsError.code !== 'PGRST116') throw statsError;
       setStats(statsData);
 
-      // Load credit packs (including inactive ones for admin)
       const { data: packsData, error: packsError } = await supabase
         .from('credit_packs')
         .select('*')
@@ -149,7 +151,6 @@ const Admin = () => {
       if (packsError) throw packsError;
       setCreditPacks(packsData || []);
 
-      // Load orders with user info
       const { data: ordersData, error: ordersError } = await supabase
         .from('orders')
         .select('*')
@@ -158,14 +159,12 @@ const Admin = () => {
 
       if (ordersError) throw ordersError;
       
-      // Enrich orders with usernames
       const enrichedOrders = (ordersData || []).map(order => {
         const user = usersData?.find(u => u.id === order.user_id);
         return { ...order, username: user?.username || 'Unknown' };
       });
       setOrders(enrichedOrders);
 
-      // Load help requests
       const { data: helpData, error: helpError } = await supabase
         .from('help_requests')
         .select('*')
@@ -175,7 +174,6 @@ const Admin = () => {
       if (helpError) throw helpError;
       setHelpRequests(helpData || []);
 
-      // Load payment settings via edge function
       const { data: settingsResponse } = await supabase.functions.invoke('get-payment-settings', {
         body: { adminPassword: ADMIN_PASSWORD },
       });
@@ -192,7 +190,6 @@ const Admin = () => {
           setCashfreeSecretKey(settings['cashfree_secret_key']);
         }
       }
-
     } catch (error) {
       console.error("Error loading data:", error);
       toast({
@@ -233,6 +230,26 @@ const Admin = () => {
     }, 500);
   };
 
+  const logAuditAction = async (
+    actionType: string, 
+    targetUserId: string, 
+    targetUsername: string, 
+    details: object
+  ) => {
+    try {
+      await supabase.from('audit_logs').insert([{
+        admin_user_id: authUser?.id || '00000000-0000-0000-0000-000000000000',
+        admin_username: 'admin',
+        action_type: actionType,
+        target_user_id: targetUserId,
+        target_username: targetUsername,
+        details: details as Record<string, unknown>,
+      }]);
+    } catch (error) {
+      console.error("Error logging audit action:", error);
+    }
+  };
+
   const handleAddCredits = async (userId: string) => {
     const credits = parseInt(creditsToAdd);
     if (isNaN(credits) || credits <= 0) {
@@ -255,10 +272,10 @@ const Admin = () => {
 
       if (error) throw error;
 
+      await logAuditAction('credits_added', userId, user.username, { credits_added: credits });
+
       setUsers(users.map(u => 
-        u.id === userId 
-          ? { ...u, credits: u.credits + credits }
-          : u
+        u.id === userId ? { ...u, credits: u.credits + credits } : u
       ));
 
       toast({
@@ -290,10 +307,10 @@ const Admin = () => {
 
       if (error) throw error;
 
+      await logAuditAction(user.banned ? 'user_unbanned' : 'user_banned', userId, user.username, {});
+
       setUsers(users.map(u => 
-        u.id === userId 
-          ? { ...u, banned: !u.banned }
-          : u
+        u.id === userId ? { ...u, banned: !u.banned } : u
       ));
 
       toast({
@@ -310,7 +327,6 @@ const Admin = () => {
     }
   };
 
-  // Credit Pack Management
   const handleSavePack = async () => {
     const credits = parseInt(packCredits);
     const price = parseFloat(packPrice);
@@ -326,7 +342,6 @@ const Admin = () => {
 
     try {
       if (editingPack) {
-        // Update existing pack
         const { error } = await supabase
           .from('credit_packs')
           .update({ credits, price, is_popular: packPopular, is_featured: packFeatured })
@@ -340,12 +355,8 @@ const Admin = () => {
             : p
         ));
 
-        toast({
-          title: "Pack Updated",
-          description: `Credit pack updated successfully.`,
-        });
+        toast({ title: "Pack Updated", description: "Credit pack updated successfully." });
       } else {
-        // Create new pack
         const { data, error } = await supabase
           .from('credit_packs')
           .insert({ credits, price, is_popular: packPopular, is_featured: packFeatured })
@@ -355,46 +366,25 @@ const Admin = () => {
         if (error) throw error;
 
         setCreditPacks([...creditPacks, data].sort((a, b) => a.credits - b.credits));
-
-        toast({
-          title: "Pack Created",
-          description: `New credit pack created successfully.`,
-        });
+        toast({ title: "Pack Created", description: "New credit pack created successfully." });
       }
 
       resetPackForm();
     } catch (error) {
       console.error("Error saving pack:", error);
-      toast({
-        title: "Error",
-        description: "Failed to save credit pack",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Failed to save credit pack", variant: "destructive" });
     }
   };
 
   const handleDeletePack = async (packId: string) => {
     try {
-      const { error } = await supabase
-        .from('credit_packs')
-        .delete()
-        .eq('id', packId);
-
+      const { error } = await supabase.from('credit_packs').delete().eq('id', packId);
       if (error) throw error;
-
       setCreditPacks(creditPacks.filter(p => p.id !== packId));
-
-      toast({
-        title: "Pack Deleted",
-        description: "Credit pack deleted successfully.",
-      });
+      toast({ title: "Pack Deleted", description: "Credit pack deleted successfully." });
     } catch (error) {
       console.error("Error deleting pack:", error);
-      toast({
-        title: "Error",
-        description: "Failed to delete credit pack",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Failed to delete credit pack", variant: "destructive" });
     }
   };
 
@@ -417,11 +407,7 @@ const Admin = () => {
       });
     } catch (error) {
       console.error("Error toggling pack status:", error);
-      toast({
-        title: "Error",
-        description: "Failed to update pack status",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Failed to update pack status", variant: "destructive" });
     }
   };
 
@@ -445,11 +431,7 @@ const Admin = () => {
 
   const handleReplyToHelp = async (requestId: string) => {
     if (!replyText.trim()) {
-      toast({
-        title: "Empty Reply",
-        description: "Please enter a reply message.",
-        variant: "destructive",
-      });
+      toast({ title: "Empty Reply", description: "Please enter a reply message.", variant: "destructive" });
       return;
     }
 
@@ -462,25 +444,15 @@ const Admin = () => {
       if (error) throw error;
 
       setHelpRequests(helpRequests.map(r => 
-        r.id === requestId 
-          ? { ...r, admin_reply: replyText.trim(), status: 'replied' }
-          : r
+        r.id === requestId ? { ...r, admin_reply: replyText.trim(), status: 'replied' } : r
       ));
 
-      toast({
-        title: "Reply Sent",
-        description: "Your reply has been sent to the user.",
-      });
-
+      toast({ title: "Reply Sent", description: "Your reply has been sent to the user." });
       setReplyingTo(null);
       setReplyText("");
     } catch (error) {
       console.error("Error replying to help request:", error);
-      toast({
-        title: "Error",
-        description: "Failed to send reply",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Failed to send reply", variant: "destructive" });
     }
   };
 
@@ -497,10 +469,7 @@ const Admin = () => {
         r.id === requestId ? { ...r, status: 'closed' } : r
       ));
 
-      toast({
-        title: "Request Closed",
-        description: "Help request has been closed.",
-      });
+      toast({ title: "Request Closed", description: "Help request has been closed." });
     } catch (error) {
       console.error("Error closing help request:", error);
     }
@@ -509,7 +478,7 @@ const Admin = () => {
   const handleSavePaymentSettings = async () => {
     setSavingSettings(true);
     try {
-      const { data, error } = await supabase.functions.invoke('update-payment-settings', {
+      const { error } = await supabase.functions.invoke('update-payment-settings', {
         body: {
           cashfreeMode,
           cashfreeAppId,
@@ -520,17 +489,10 @@ const Admin = () => {
 
       if (error) throw error;
 
-      toast({
-        title: "Settings Saved",
-        description: `Cashfree is now in ${cashfreeMode} mode.`,
-      });
+      toast({ title: "Settings Saved", description: `Cashfree is now in ${cashfreeMode} mode.` });
     } catch (error) {
       console.error("Error saving payment settings:", error);
-      toast({
-        title: "Error",
-        description: "Failed to save payment settings",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Failed to save payment settings", variant: "destructive" });
     } finally {
       setSavingSettings(false);
     }
@@ -556,9 +518,7 @@ const Admin = () => {
                   <Shield className="w-8 h-8 text-destructive" />
                 </div>
                 <CardTitle className="text-2xl">Admin Access</CardTitle>
-                <CardDescription>
-                  Enter the admin password to continue
-                </CardDescription>
+                <CardDescription>Enter the admin password to continue</CardDescription>
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleLogin} className="space-y-6">
@@ -577,13 +537,7 @@ const Admin = () => {
                     </div>
                   </div>
 
-                  <Button 
-                    type="submit" 
-                    variant="default" 
-                    size="lg" 
-                    className="w-full"
-                    disabled={loading}
-                  >
+                  <Button type="submit" variant="default" size="lg" className="w-full" disabled={loading}>
                     {loading ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
@@ -610,7 +564,6 @@ const Admin = () => {
 
       <main className="pt-24 pb-20 px-4">
         <div className="container max-w-6xl mx-auto space-y-8">
-          {/* Header with refresh */}
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-bold text-foreground">Admin Dashboard</h1>
             <Button variant="outline" size="sm" onClick={loadData} disabled={refreshing}>
@@ -619,612 +572,429 @@ const Admin = () => {
             </Button>
           </div>
 
-          {/* Stats Overview */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 stagger-children">
-            <StatCard 
-              icon={<Users className="w-5 h-5" />} 
-              label="Total Users" 
-              value={users.length} 
-            />
-            <StatCard 
-              icon={<SearchIcon className="w-5 h-5" />} 
-              label="Total Lookups" 
-              value={stats?.total_checks || 0} 
-            />
-            <StatCard 
-              icon={<CreditIcon className="w-5 h-5" />} 
-              label="Payments" 
-              value={stats?.total_payments || 0} 
-            />
-            <StatCard 
-              icon={<BarChart3 className="w-5 h-5" />} 
-              label="Revenue" 
-              value={`₹${stats?.total_revenue || 0}`} 
-            />
+            <StatCard icon={<Users className="w-5 h-5" />} label="Total Users" value={users.length} />
+            <StatCard icon={<SearchIcon className="w-5 h-5" />} label="Total Lookups" value={stats?.total_checks || 0} />
+            <StatCard icon={<CreditIcon className="w-5 h-5" />} label="Payments" value={stats?.total_payments || 0} />
+            <StatCard icon={<BarChart3 className="w-5 h-5" />} label="Revenue" value={`₹${stats?.total_revenue || 0}`} />
           </div>
 
-          {/* User Management */}
-          <Card variant="glass">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="w-5 h-5 text-primary" />
-                User Management
-              </CardTitle>
-              <CardDescription>View and manage all registered users</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Search */}
-              <div className="relative max-w-md">
-                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search users..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
+          <Tabs defaultValue="users" className="space-y-6">
+            <TabsList className="grid grid-cols-2 md:grid-cols-6 gap-2 h-auto p-1">
+              <TabsTrigger value="users" className="text-xs md:text-sm">Users</TabsTrigger>
+              <TabsTrigger value="packs" className="text-xs md:text-sm">Credit Packs</TabsTrigger>
+              <TabsTrigger value="orders" className="text-xs md:text-sm">Orders</TabsTrigger>
+              <TabsTrigger value="analytics" className="text-xs md:text-sm">Analytics</TabsTrigger>
+              <TabsTrigger value="security" className="text-xs md:text-sm">Security</TabsTrigger>
+              <TabsTrigger value="settings" className="text-xs md:text-sm">Settings</TabsTrigger>
+            </TabsList>
 
-              {/* Users Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Username</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Credits</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Joined</th>
-                      <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredUsers.map((user) => (
-                      <tr key={user.id} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
-                        <td className="py-3 px-4">
-                          <span className="font-medium text-foreground">{user.username}</span>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="font-mono text-primary">{user.credits}</span>
-                        </td>
-                        <td className="py-3 px-4">
-                          {user.banned ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-destructive/10 text-destructive text-xs">
-                              <Ban className="w-3 h-3" />
-                              Banned
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-success/10 text-success text-xs">
-                              <CheckCircle className="w-3 h-3" />
-                              Active
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-muted-foreground">
-                          {new Date(user.created_at).toLocaleDateString()}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center justify-end gap-2">
-                            {selectedUser === user.id ? (
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  type="number"
-                                  placeholder="Credits"
-                                  value={creditsToAdd}
-                                  onChange={(e) => setCreditsToAdd(e.target.value)}
-                                  className="w-24 h-8"
-                                />
-                                <Button 
-                                  size="sm" 
-                                  variant="success"
-                                  onClick={() => handleAddCredits(user.id)}
-                                >
-                                  Add
-                                </Button>
-                                <Button 
-                                  size="sm" 
-                                  variant="ghost"
-                                  onClick={() => setSelectedUser(null)}
-                                >
-                                  Cancel
+            {/* Users Tab */}
+            <TabsContent value="users" className="space-y-6">
+              <Card variant="glass">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="w-5 h-5 text-primary" />
+                    User Management
+                  </CardTitle>
+                  <CardDescription>View and manage all registered users</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="relative max-w-md">
+                    <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search users..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Username</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Credits</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Joined</th>
+                          <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredUsers.map((user) => (
+                          <tr key={user.id} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
+                            <td className="py-3 px-4">
+                              <span className="font-medium text-foreground">{user.username}</span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="font-mono text-primary">{user.credits}</span>
+                            </td>
+                            <td className="py-3 px-4">
+                              {user.banned ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-destructive/10 text-destructive text-xs">
+                                  <Ban className="w-3 h-3" />Banned
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-success/10 text-success text-xs">
+                                  <CheckCircle className="w-3 h-3" />Active
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-sm text-muted-foreground">
+                              {new Date(user.created_at).toLocaleDateString()}
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="flex items-center justify-end gap-2">
+                                {selectedUser === user.id ? (
+                                  <div className="flex items-center gap-2">
+                                    <Input
+                                      type="number"
+                                      placeholder="Credits"
+                                      value={creditsToAdd}
+                                      onChange={(e) => setCreditsToAdd(e.target.value)}
+                                      className="w-24 h-8"
+                                    />
+                                    <Button size="sm" variant="success" onClick={() => handleAddCredits(user.id)}>Add</Button>
+                                    <Button size="sm" variant="ghost" onClick={() => setSelectedUser(null)}>Cancel</Button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <Button size="sm" variant="outline" onClick={() => setSelectedUser(user.id)}>
+                                      <Plus className="w-3 h-3 mr-1" />Credits
+                                    </Button>
+                                    <Button size="sm" variant={user.banned ? "success" : "destructive"} onClick={() => handleToggleBan(user.id)}>
+                                      {user.banned ? <><CheckCircle className="w-3 h-3 mr-1" />Unban</> : <><Ban className="w-3 h-3 mr-1" />Ban</>}
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {filteredUsers.length === 0 && (
+                          <tr><td colSpan={5} className="py-8 text-center text-muted-foreground">No users found</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <BulkOperations onAuditLog={logAuditAction} onRefresh={loadData} />
+            </TabsContent>
+
+            {/* Credit Packs Tab */}
+            <TabsContent value="packs" className="space-y-6">
+              <Card variant="glass">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <Package className="w-5 h-5 text-primary" />
+                        Credit Packs
+                      </CardTitle>
+                      <CardDescription>Manage credit pack pricing and availability</CardDescription>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => { resetPackForm(); setShowPackForm(true); }}>
+                      <Plus className="w-4 h-4 mr-1" />Add Pack
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {showPackForm && (
+                    <div className="p-4 rounded-lg bg-secondary/30 border border-border space-y-4">
+                      <h4 className="font-medium text-foreground">{editingPack ? "Edit Credit Pack" : "New Credit Pack"}</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-sm text-muted-foreground">Credits</label>
+                          <Input type="number" placeholder="e.g. 50" value={packCredits} onChange={(e) => setPackCredits(e.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm text-muted-foreground">Price (₹)</label>
+                          <Input type="number" placeholder="e.g. 30" value={packPrice} onChange={(e) => setPackPrice(e.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm text-muted-foreground">Badges</label>
+                          <div className="flex gap-2">
+                            <Button type="button" variant={packPopular ? "default" : "outline"} size="sm" onClick={() => setPackPopular(!packPopular)}>
+                              <Star className={`w-4 h-4 mr-1 ${packPopular ? "fill-current" : ""}`} />Popular
+                            </Button>
+                            <Button type="button" variant={packFeatured ? "default" : "outline"} size="sm" onClick={() => setPackFeatured(!packFeatured)}>
+                              <Crown className={`w-4 h-4 mr-1 ${packFeatured ? "fill-current" : ""}`} />Featured
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button variant="default" onClick={handleSavePack}>{editingPack ? "Update Pack" : "Create Pack"}</Button>
+                        <Button variant="ghost" onClick={resetPackForm}>Cancel</Button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Credits</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Price</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Per Credit</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
+                          <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {creditPacks.map((pack) => (
+                          <tr key={pack.id} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-mono text-primary font-bold">{pack.credits}</span>
+                                {pack.is_popular && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">
+                                    <Star className="w-3 h-3 fill-current" />Popular
+                                  </span>
+                                )}
+                                {pack.is_featured && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-warning text-xs">
+                                    <Crown className="w-3 h-3 fill-current" />Featured
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-3 px-4"><span className="font-medium text-foreground">₹{pack.price}</span></td>
+                            <td className="py-3 px-4 text-muted-foreground">₹{(Number(pack.price) / pack.credits).toFixed(2)}</td>
+                            <td className="py-3 px-4">
+                              {pack.is_active ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-success/10 text-success text-xs">
+                                  <CheckCircle className="w-3 h-3" />Active
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-muted text-muted-foreground text-xs">Hidden</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="flex items-center justify-end gap-2">
+                                <Button size="sm" variant="ghost" onClick={() => startEditPack(pack)}><Pencil className="w-3 h-3" /></Button>
+                                <Button size="sm" variant="ghost" onClick={() => handleTogglePackActive(pack)}>{pack.is_active ? "Hide" : "Show"}</Button>
+                                <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => handleDeletePack(pack.id)}>
+                                  <Trash2 className="w-3 h-3" />
                                 </Button>
                               </div>
-                            ) : (
-                              <>
-                                <Button 
-                                  size="sm" 
-                                  variant="outline"
-                                  onClick={() => setSelectedUser(user.id)}
-                                >
-                                  <Plus className="w-3 h-3 mr-1" />
-                                  Credits
-                                </Button>
-                                <Button 
-                                  size="sm" 
-                                  variant={user.banned ? "success" : "destructive"}
-                                  onClick={() => handleToggleBan(user.id)}
-                                >
-                                  {user.banned ? (
-                                    <>
-                                      <CheckCircle className="w-3 h-3 mr-1" />
-                                      Unban
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Ban className="w-3 h-3 mr-1" />
-                                      Ban
-                                    </>
-                                  )}
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {filteredUsers.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="py-8 text-center text-muted-foreground">
-                          No users found
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+                            </td>
+                          </tr>
+                        ))}
+                        {creditPacks.length === 0 && (
+                          <tr><td colSpan={5} className="py-8 text-center text-muted-foreground">No credit packs configured</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-          {/* Credit Pack Management */}
-          <Card variant="glass">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
+            {/* Orders Tab */}
+            <TabsContent value="orders" className="space-y-6">
+              <Card variant="glass">
+                <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Package className="w-5 h-5 text-primary" />
-                    Credit Packs
+                    <Receipt className="w-5 h-5 text-primary" />
+                    Order History
                   </CardTitle>
-                  <CardDescription>Manage credit pack pricing and availability</CardDescription>
-                </div>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => {
-                    resetPackForm();
-                    setShowPackForm(true);
-                  }}
-                >
-                  <Plus className="w-4 h-4 mr-1" />
-                  Add Pack
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Pack Form */}
-              {showPackForm && (
-                <div className="p-4 rounded-lg bg-secondary/30 border border-border space-y-4">
-                  <h4 className="font-medium text-foreground">
-                    {editingPack ? "Edit Credit Pack" : "New Credit Pack"}
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <CardDescription>View all payment transactions</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Order ID</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">User</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Credits</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Amount</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {orders.map((order) => (
+                          <tr key={order.id} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
+                            <td className="py-3 px-4"><span className="font-mono text-xs text-muted-foreground">{order.order_id.slice(0, 20)}...</span></td>
+                            <td className="py-3 px-4"><span className="font-medium text-foreground">{order.username}</span></td>
+                            <td className="py-3 px-4"><span className="font-mono text-primary">{order.credits}</span></td>
+                            <td className="py-3 px-4"><span className="font-medium text-foreground">₹{order.amount}</span></td>
+                            <td className="py-3 px-4">
+                              {order.status === 'completed' ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-success/10 text-success text-xs">
+                                  <CheckCircle className="w-3 h-3" />Completed
+                                </span>
+                              ) : order.status === 'failed' ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-destructive/10 text-destructive text-xs">Failed</span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-warning/10 text-warning text-xs">Pending</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-sm text-muted-foreground">{new Date(order.created_at).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                        {orders.length === 0 && (
+                          <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">No orders found</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Help Requests */}
+              <Card variant="glass">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <MessageSquare className="w-5 h-5 text-primary" />
+                    Help Requests
+                  </CardTitle>
+                  <CardDescription>Manage user support requests</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {helpRequests.length === 0 ? (
+                    <p className="text-center text-muted-foreground py-8">No help requests</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {helpRequests.map((request) => (
+                        <div key={request.id} className="p-4 rounded-lg bg-secondary/30 border border-border/50 space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <h5 className="font-medium text-foreground">{request.subject}</h5>
+                              <p className="text-xs text-muted-foreground">From: {request.username} • {new Date(request.created_at).toLocaleString()}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {request.status === 'open' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-warning/10 text-warning text-xs">Open</span>
+                              )}
+                              {request.status === 'replied' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-success/10 text-success text-xs">Replied</span>
+                              )}
+                              {request.status === 'closed' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-muted text-muted-foreground text-xs">Closed</span>
+                              )}
+                            </div>
+                          </div>
+                          
+                          <p className="text-sm text-foreground">{request.message}</p>
+                          
+                          {request.admin_reply && (
+                            <div className="p-3 rounded-md bg-primary/5 border border-primary/20">
+                              <p className="text-xs font-medium text-primary mb-1">Your Reply:</p>
+                              <p className="text-sm text-foreground">{request.admin_reply}</p>
+                            </div>
+                          )}
+
+                          {replyingTo === request.id ? (
+                            <div className="space-y-2">
+                              <Textarea placeholder="Type your reply..." value={replyText} onChange={(e) => setReplyText(e.target.value)} rows={3} />
+                              <div className="flex gap-2">
+                                <Button size="sm" onClick={() => handleReplyToHelp(request.id)}><Reply className="w-3 h-3 mr-1" />Send Reply</Button>
+                                <Button size="sm" variant="ghost" onClick={() => { setReplyingTo(null); setReplyText(""); }}>Cancel</Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex gap-2">
+                              {request.status !== 'closed' && (
+                                <>
+                                  <Button size="sm" variant="outline" onClick={() => { setReplyingTo(request.id); setReplyText(request.admin_reply || ""); }}>
+                                    <Reply className="w-3 h-3 mr-1" />{request.admin_reply ? "Edit Reply" : "Reply"}
+                                  </Button>
+                                  <Button size="sm" variant="ghost" onClick={() => handleCloseHelpRequest(request.id)}>Close</Button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Analytics Tab */}
+            <TabsContent value="analytics" className="space-y-6">
+              <AnalyticsDashboard />
+            </TabsContent>
+
+            {/* Security Tab */}
+            <TabsContent value="security" className="space-y-6">
+              <RoleManagement onAuditLog={logAuditAction} />
+              <AuditLogs />
+            </TabsContent>
+
+            {/* Settings Tab */}
+            <TabsContent value="settings" className="space-y-6">
+              <Card variant="glass">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Settings className="w-5 h-5 text-primary" />
+                    Payment Settings
+                  </CardTitle>
+                  <CardDescription>Configure Cashfree payment gateway</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="flex items-center justify-between p-4 rounded-lg bg-secondary/30 border border-border">
+                    <div>
+                      <p className="font-medium text-foreground">Payment Mode</p>
+                      <p className="text-sm text-muted-foreground">
+                        {cashfreeMode === 'sandbox' ? 'Test mode - No real transactions' : 'Live mode - Real transactions will be processed'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-sm ${cashfreeMode === 'sandbox' ? 'text-warning font-medium' : 'text-muted-foreground'}`}>Sandbox</span>
+                      <Switch checked={cashfreeMode === 'production'} onCheckedChange={(checked) => setCashfreeMode(checked ? 'production' : 'sandbox')} />
+                      <span className={`text-sm ${cashfreeMode === 'production' ? 'text-success font-medium' : 'text-muted-foreground'}`}>Production</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
                     <div className="space-y-2">
-                      <label className="text-sm text-muted-foreground">Credits</label>
-                      <Input
-                        type="number"
-                        placeholder="e.g. 50"
-                        value={packCredits}
-                        onChange={(e) => setPackCredits(e.target.value)}
-                      />
+                      <label className="text-sm font-medium text-foreground">App ID</label>
+                      <Input type="text" placeholder="Enter Cashfree App ID" value={cashfreeAppId} onChange={(e) => setCashfreeAppId(e.target.value)} />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm text-muted-foreground">Price (₹)</label>
-                      <Input
-                        type="number"
-                        placeholder="e.g. 30"
-                        value={packPrice}
-                        onChange={(e) => setPackPrice(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm text-muted-foreground">Badges</label>
-                      <div className="flex gap-2">
+                      <label className="text-sm font-medium text-foreground">Secret Key</label>
+                      <div className="relative">
+                        <Input
+                          type={showSecretKey ? "text" : "password"}
+                          placeholder="Enter Cashfree Secret Key"
+                          value={cashfreeSecretKey}
+                          onChange={(e) => setCashfreeSecretKey(e.target.value)}
+                          className="pr-10"
+                        />
                         <Button
                           type="button"
-                          variant={packPopular ? "default" : "outline"}
+                          variant="ghost"
                           size="sm"
-                          onClick={() => setPackPopular(!packPopular)}
+                          className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                          onClick={() => setShowSecretKey(!showSecretKey)}
                         >
-                          <Star className={`w-4 h-4 mr-1 ${packPopular ? "fill-current" : ""}`} />
-                          Popular
+                          {showSecretKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </Button>
-                        <Button
-                          type="button"
-                          variant={packFeatured ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => setPackFeatured(!packFeatured)}
-                        >
-                          <Crown className={`w-4 h-4 mr-1 ${packFeatured ? "fill-current" : ""}`} />
-                          Featured
-                        </Button>
+                      </div>
+
+                      <div className="rounded-lg bg-secondary/30 border border-border p-3 text-xs text-muted-foreground space-y-1">
+                        <p>Saved App ID: <span className="font-mono text-foreground">{cashfreeAppId || "—"}</span></p>
+                        <p>Saved Secret Key: <span className="font-mono text-foreground">{cashfreeSecretKey ? (showSecretKey ? cashfreeSecretKey : maskSecret(cashfreeSecretKey)) : "—"}</span></p>
                       </div>
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button variant="default" onClick={handleSavePack}>
-                      {editingPack ? "Update Pack" : "Create Pack"}
-                    </Button>
-                    <Button variant="ghost" onClick={resetPackForm}>
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              )}
 
-              {/* Packs Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Credits</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Price</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Per Credit</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
-                      <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {creditPacks.map((pack) => (
-                      <tr key={pack.id} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-mono text-primary font-bold">{pack.credits}</span>
-                            {pack.is_popular && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">
-                                <Star className="w-3 h-3 fill-current" />
-                                Popular
-                              </span>
-                            )}
-                            {pack.is_featured && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-warning text-xs">
-                                <Crown className="w-3 h-3 fill-current" />
-                                Featured
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="font-medium text-foreground">₹{pack.price}</span>
-                        </td>
-                        <td className="py-3 px-4 text-muted-foreground">
-                          ₹{(Number(pack.price) / pack.credits).toFixed(2)}
-                        </td>
-                        <td className="py-3 px-4">
-                          {pack.is_active ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-success/10 text-success text-xs">
-                              <CheckCircle className="w-3 h-3" />
-                              Active
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-muted text-muted-foreground text-xs">
-                              Hidden
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button 
-                              size="sm" 
-                              variant="ghost"
-                              onClick={() => startEditPack(pack)}
-                            >
-                              <Pencil className="w-3 h-3" />
-                            </Button>
-                            <Button 
-                              size="sm" 
-                              variant="ghost"
-                              onClick={() => handleTogglePackActive(pack)}
-                            >
-                              {pack.is_active ? "Hide" : "Show"}
-                            </Button>
-                            <Button 
-                              size="sm" 
-                              variant="ghost"
-                              className="text-destructive hover:text-destructive"
-                              onClick={() => handleDeletePack(pack.id)}
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {creditPacks.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="py-8 text-center text-muted-foreground">
-                          No credit packs configured
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Order History */}
-          <Card variant="glass">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Receipt className="w-5 h-5 text-primary" />
-                Order History
-              </CardTitle>
-              <CardDescription>View all payment transactions</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Order ID</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">User</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Credits</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Amount</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orders.map((order) => (
-                      <tr key={order.id} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
-                        <td className="py-3 px-4">
-                          <span className="font-mono text-xs text-muted-foreground">{order.order_id.slice(0, 20)}...</span>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="font-medium text-foreground">{order.username}</span>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="font-mono text-primary">{order.credits}</span>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="font-medium text-foreground">₹{order.amount}</span>
-                        </td>
-                        <td className="py-3 px-4">
-                          {order.status === 'completed' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-success/10 text-success text-xs">
-                              <CheckCircle className="w-3 h-3" />
-                              Completed
-                            </span>
-                          ) : order.status === 'failed' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-destructive/10 text-destructive text-xs">
-                              Failed
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-warning/10 text-warning text-xs">
-                              Pending
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-muted-foreground">
-                          {new Date(order.created_at).toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                    {orders.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="py-8 text-center text-muted-foreground">
-                          No orders found
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Payment Settings */}
-          <Card variant="glass">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Settings className="w-5 h-5 text-primary" />
-                Payment Settings
-              </CardTitle>
-              <CardDescription>Configure Cashfree payment gateway</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Mode Toggle */}
-              <div className="flex items-center justify-between p-4 rounded-lg bg-secondary/30 border border-border">
-                <div>
-                  <p className="font-medium text-foreground">Payment Mode</p>
-                  <p className="text-sm text-muted-foreground">
-                    {cashfreeMode === 'sandbox' 
-                      ? 'Test mode - No real transactions' 
-                      : 'Live mode - Real transactions will be processed'}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className={`text-sm ${cashfreeMode === 'sandbox' ? 'text-warning font-medium' : 'text-muted-foreground'}`}>
-                    Sandbox
-                  </span>
-                  <Switch
-                    checked={cashfreeMode === 'production'}
-                    onCheckedChange={(checked) => setCashfreeMode(checked ? 'production' : 'sandbox')}
-                  />
-                  <span className={`text-sm ${cashfreeMode === 'production' ? 'text-success font-medium' : 'text-muted-foreground'}`}>
-                    Production
-                  </span>
-                </div>
-              </div>
-
-              {/* API Credentials */}
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">App ID</label>
-                  <Input
-                    type="text"
-                    placeholder="Enter Cashfree App ID"
-                    value={cashfreeAppId}
-                    onChange={(e) => setCashfreeAppId(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Secret Key</label>
-                  <div className="relative">
-                    <Input
-                      type={showSecretKey ? "text" : "password"}
-                      placeholder="Enter Cashfree Secret Key"
-                      value={cashfreeSecretKey}
-                      onChange={(e) => setCashfreeSecretKey(e.target.value)}
-                      className="pr-10"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
-                      onClick={() => setShowSecretKey(!showSecretKey)}
-                    >
-                      {showSecretKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </Button>
-                  </div>
-
-                  <div className="rounded-lg bg-secondary/30 border border-border p-3 text-xs text-muted-foreground space-y-1">
-                    <p>
-                      Saved App ID:{" "}
-                      <span className="font-mono text-foreground">
-                        {cashfreeAppId ? cashfreeAppId : "—"}
-                      </span>
-                    </p>
-                    <p>
-                      Saved Secret Key:{" "}
-                      <span className="font-mono text-foreground">
-                        {cashfreeSecretKey
-                          ? showSecretKey
-                            ? cashfreeSecretKey
-                            : maskSecret(cashfreeSecretKey)
-                          : "—"}
-                      </span>
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <Button onClick={handleSavePaymentSettings} disabled={savingSettings}>
-                {savingSettings ? (
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                ) : (
-                  <Settings className="w-4 h-4 mr-2" />
-                )}
-                Save Settings
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Help Requests */}
-          <Card variant="glass">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <MessageSquare className="w-5 h-5 text-primary" />
-                Help Requests
-              </CardTitle>
-              <CardDescription>Manage user support requests</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {helpRequests.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8">No help requests</p>
-              ) : (
-                <div className="space-y-4">
-                  {helpRequests.map((request) => (
-                    <div
-                      key={request.id}
-                      className="p-4 rounded-lg bg-secondary/30 border border-border/50 space-y-3"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <h5 className="font-medium text-foreground">{request.subject}</h5>
-                          <p className="text-xs text-muted-foreground">
-                            From: {request.username} • {new Date(request.created_at).toLocaleString()}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {request.status === 'open' && (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-warning/10 text-warning text-xs">
-                              Open
-                            </span>
-                          )}
-                          {request.status === 'replied' && (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-success/10 text-success text-xs">
-                              Replied
-                            </span>
-                          )}
-                          {request.status === 'closed' && (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-muted text-muted-foreground text-xs">
-                              Closed
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <p className="text-sm text-foreground">{request.message}</p>
-                      
-                      {request.admin_reply && (
-                        <div className="p-3 rounded-md bg-primary/5 border border-primary/20">
-                          <p className="text-xs font-medium text-primary mb-1">Your Reply:</p>
-                          <p className="text-sm text-foreground">{request.admin_reply}</p>
-                        </div>
-                      )}
-
-                      {replyingTo === request.id ? (
-                        <div className="space-y-2">
-                          <Textarea
-                            placeholder="Type your reply..."
-                            value={replyText}
-                            onChange={(e) => setReplyText(e.target.value)}
-                            rows={3}
-                          />
-                          <div className="flex gap-2">
-                            <Button size="sm" onClick={() => handleReplyToHelp(request.id)}>
-                              <Reply className="w-3 h-3 mr-1" />
-                              Send Reply
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => {
-                              setReplyingTo(null);
-                              setReplyText("");
-                            }}>
-                              Cancel
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex gap-2">
-                          {request.status !== 'closed' && (
-                            <>
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                onClick={() => {
-                                  setReplyingTo(request.id);
-                                  setReplyText(request.admin_reply || "");
-                                }}
-                              >
-                                <Reply className="w-3 h-3 mr-1" />
-                                {request.admin_reply ? "Edit Reply" : "Reply"}
-                              </Button>
-                              <Button 
-                                size="sm" 
-                                variant="ghost"
-                                onClick={() => handleCloseHelpRequest(request.id)}
-                              >
-                                Close
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                  <Button onClick={handleSavePaymentSettings} disabled={savingSettings}>
+                    {savingSettings ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Settings className="w-4 h-4 mr-2" />}
+                    Save Settings
+                  </Button>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </div>
       </main>
     </div>
@@ -1235,9 +1005,7 @@ const StatCard = ({ icon, label, value }: { icon: React.ReactNode; label: string
   <Card variant="glass" className="glow-hover">
     <CardContent className="p-6">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-          {icon}
-        </div>
+        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">{icon}</div>
         <div>
           <p className="text-sm text-muted-foreground">{label}</p>
           <p className="text-2xl font-bold font-mono text-foreground">{value}</p>

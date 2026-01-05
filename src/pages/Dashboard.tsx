@@ -6,13 +6,16 @@ import { NumberLookup } from "@/components/NumberLookup";
 import { SearchHistory } from "@/components/SearchHistory";
 import { HelpSection } from "@/components/HelpSection";
 import { OrderHistory } from "@/components/OrderHistory";
+import { ProfileSettings } from "@/components/ProfileSettings";
+import { ReferralSection } from "@/components/ReferralSection";
+import { ExportHistory } from "@/components/ExportHistory";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useCreditNotification } from "@/hooks/useCreditNotification";
 import { useAuth } from "@/contexts/AuthContext";
 import { openCashfreeCheckout } from "@/lib/cashfree";
-import { CreditCard, Check, Loader2 } from "lucide-react";
+import { CreditCard, Check, Loader2, Settings, ChevronDown, ChevronUp } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 interface UserData {
@@ -57,6 +60,7 @@ const Dashboard = () => {
   const [buyingCredits, setBuyingCredits] = useState<number | null>(null);
   const [creditPacks, setCreditPacks] = useState<CreditPack[]>([]);
   const [creditsAdded, setCreditsAdded] = useState<{ credits: number; newBalance: number } | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
   
   const navigate = useNavigate();
   const location = useLocation();
@@ -421,18 +425,33 @@ const Dashboard = () => {
               onLookup={handleLookup}
               onHistoryUpdate={handleHistoryUpdate}
             />
-            <SearchHistory history={history} loading={historyLoading} />
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-muted-foreground">Recent Searches</h3>
+                <ExportHistory userId={userData.id} type="search" />
+              </div>
+              <SearchHistory history={history} loading={historyLoading} />
+            </div>
           </div>
 
-          {/* Order History */}
-          <OrderHistory 
-            orders={orders} 
-            loading={ordersLoading} 
-            onOrderVerified={() => {
+          {/* Order History with Export */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-muted-foreground">Order History</h3>
+              <ExportHistory userId={userData.id} type="orders" />
+            </div>
+            <OrderHistory 
+              orders={orders} 
+              loading={ordersLoading} 
+              onOrderVerified={() => {
               loadUserData();
               if (userData) loadOrders(userData.id);
             }} 
-          />
+            />
+          </div>
+
+          {/* Referral Section */}
+          <ReferralSection userId={userData.id} username={displayName} />
 
           {/* Buy Credits Section */}
           <Card className="animate-fade-in">
@@ -488,6 +507,25 @@ const Dashboard = () => {
               </div>
             </CardContent>
           </Card>
+
+          {/* Settings Section */}
+          <div className="space-y-4">
+            <Button
+              variant="outline"
+              className="w-full justify-between"
+              onClick={() => setShowSettings(!showSettings)}
+            >
+              <span className="flex items-center gap-2">
+                <Settings className="w-4 h-4" />
+                Account Settings
+              </span>
+              {showSettings ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </Button>
+            
+            {showSettings && (
+              <ProfileSettings userId={userData.id} userEmail={authUser.email || ''} />
+            )}
+          </div>
 
           {/* Help Section */}
           <HelpSection userId={userData.id} username={displayName} />

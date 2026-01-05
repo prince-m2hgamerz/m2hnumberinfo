@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      audit_logs: {
+        Row: {
+          action_type: string
+          admin_user_id: string
+          admin_username: string
+          created_at: string
+          details: Json | null
+          id: string
+          target_user_id: string | null
+          target_username: string | null
+        }
+        Insert: {
+          action_type: string
+          admin_user_id: string
+          admin_username: string
+          created_at?: string
+          details?: Json | null
+          id?: string
+          target_user_id?: string | null
+          target_username?: string | null
+        }
+        Update: {
+          action_type?: string
+          admin_user_id?: string
+          admin_username?: string
+          created_at?: string
+          details?: Json | null
+          id?: string
+          target_user_id?: string | null
+          target_username?: string | null
+        }
+        Relationships: []
+      }
       credit_packs: {
         Row: {
           created_at: string
@@ -148,6 +181,33 @@ export type Database = {
         }
         Relationships: []
       }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       rate_limits: {
         Row: {
           id: string
@@ -176,6 +236,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      referrals: {
+        Row: {
+          bonus_credits_awarded: boolean
+          created_at: string
+          id: string
+          referral_code: string
+          referred_user_id: string | null
+          referrer_user_id: string
+          used_at: string | null
+        }
+        Insert: {
+          bonus_credits_awarded?: boolean
+          created_at?: string
+          id?: string
+          referral_code: string
+          referred_user_id?: string | null
+          referrer_user_id: string
+          used_at?: string | null
+        }
+        Update: {
+          bonus_credits_awarded?: boolean
+          created_at?: string
+          id?: string
+          referral_code?: string
+          referred_user_id?: string | null
+          referrer_user_id?: string
+          used_at?: string | null
+        }
+        Relationships: []
       }
       search_history: {
         Row: {
@@ -236,12 +326,37 @@ export type Database = {
         }
         Relationships: []
       }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       users: {
         Row: {
           banned: boolean
           created_at: string
           credits: number
           id: string
+          referral_code: string | null
           updated_at: string
           username: string
         }
@@ -250,6 +365,7 @@ export type Database = {
           created_at?: string
           credits?: number
           id?: string
+          referral_code?: string | null
           updated_at?: string
           username: string
         }
@@ -258,6 +374,7 @@ export type Database = {
           created_at?: string
           credits?: number
           id?: string
+          referral_code?: string | null
           updated_at?: string
           username?: string
         }
@@ -268,10 +385,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "moderator" | "user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -398,6 +521,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "moderator", "user"],
+    },
   },
 } as const
