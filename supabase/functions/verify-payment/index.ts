@@ -7,7 +7,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const CASHFREE_API_URL = 'https://api.cashfree.com/pg';
 const API_VERSION = '2023-08-01';
 
 serve(async (req) => {
@@ -19,8 +18,6 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const cashfreeAppId = Deno.env.get('CASHFREE_APP_ID')!;
-    const cashfreeSecret = Deno.env.get('CASHFREE_SECRET_KEY')!;
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -34,6 +31,44 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    // Get payment settings from database (same as create-order)
+    const { data: settingsData, error: settingsError } = await supabase
+      .from('payment_settings')
+      .select('setting_key, setting_value');
+
+    if (settingsError) {
+      console.error("Error fetching payment settings:", settingsError);
+      return new Response(
+        JSON.stringify({ error: "Failed to load payment settings" }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Parse settings
+    const settings: Record<string, string> = {};
+    settingsData?.forEach((s: { setting_key: string; setting_value: string }) => {
+      settings[s.setting_key] = s.setting_value;
+    });
+
+    const cashfreeMode = settings['cashfree_mode'] || 'sandbox';
+    const cashfreeAppId = settings['cashfree_app_id'];
+    const cashfreeSecret = settings['cashfree_secret_key'];
+
+    if (!cashfreeAppId || !cashfreeSecret) {
+      console.error("Cashfree credentials not configured");
+      return new Response(
+        JSON.stringify({ error: "Payment gateway not configured" }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Set API URL based on mode
+    const CASHFREE_API_URL = cashfreeMode === 'production' 
+      ? "https://api.cashfree.com/pg" 
+      : "https://sandbox.cashfree.com/pg";
+
+    console.log(`Using Cashfree ${cashfreeMode} mode for verification`);
 
     // Check order in our database
     const { data: order, error: orderError } = await supabase
@@ -56,6 +91,7 @@ serve(async (req) => {
         JSON.stringify({ 
           success: true, 
           status: 'completed',
+          credits: order.credits,
           message: 'Payment already verified and credits added' 
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -89,10 +125,12 @@ serve(async (req) => {
         throw new Error('User not found');
       }
 
+      const newCredits = user.credits + order.credits;
+
       // Add credits
       await supabase
         .from('users')
-        .update({ credits: user.credits + order.credits })
+        .update({ credits: newCredits })
         .eq('id', order.user_id);
 
       // Update order status
@@ -117,21 +155,34 @@ serve(async (req) => {
           .eq('id', stats.id);
       }
 
+      console.log(`Payment verified! Added ${order.credits} credits. New balance: ${newCredits}`);
+
       return new Response(
         JSON.stringify({ 
           success: true, 
           status: 'completed',
           credits: order.credits,
+          newBalance: newCredits,
           message: `Successfully added ${order.credits} credits!` 
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     } else {
+      // Update order status to failed if explicitly failed
+      if (verifyData.order_status === 'EXPIRED' || verifyData.order_status === 'TERMINATED') {
+        await supabase
+          .from('orders')
+          .update({ status: 'failed' })
+          .eq('order_id', orderId);
+      }
+
       return new Response(
         JSON.stringify({ 
           success: false, 
-          status: verifyData.order_status,
-          message: 'Payment not completed' 
+          status: verifyData.order_status || 'pending',
+          message: verifyData.order_status === 'ACTIVE' 
+            ? 'Payment is still pending' 
+            : 'Payment not completed' 
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
