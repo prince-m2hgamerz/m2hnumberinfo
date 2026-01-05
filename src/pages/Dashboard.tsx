@@ -5,6 +5,7 @@ import { CreditDisplay } from "@/components/CreditDisplay";
 import { NumberLookup } from "@/components/NumberLookup";
 import { SearchHistory } from "@/components/SearchHistory";
 import { HelpSection } from "@/components/HelpSection";
+import { OrderHistory } from "@/components/OrderHistory";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -35,11 +36,22 @@ interface CreditPack {
   is_popular: boolean;
 }
 
+interface Order {
+  id: string;
+  order_id: string;
+  credits: number;
+  amount: number;
+  status: string;
+  created_at: string;
+}
+
 const Dashboard = () => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [history, setHistory] = useState<SearchHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
   const [buyingCredits, setBuyingCredits] = useState<number | null>(null);
   const [creditPacks, setCreditPacks] = useState<CreditPack[]>([]);
   const navigate = useNavigate();
@@ -111,6 +123,24 @@ const Dashboard = () => {
     }
   }, []);
 
+  const loadOrders = useCallback(async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) throw error;
+      setOrders(data || []);
+    } catch (error) {
+      console.error("Error loading orders:", error);
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadUser();
     // Load credit packs
@@ -128,8 +158,9 @@ const Dashboard = () => {
   useEffect(() => {
     if (user) {
       loadHistory(user.id);
+      loadOrders(user.id);
     }
-  }, [user, loadHistory]);
+  }, [user, loadHistory, loadOrders]);
 
   // Handle payment return
   useEffect(() => {
@@ -322,6 +353,18 @@ const Dashboard = () => {
           {/* Search History */}
           <div className="animate-fade-in" style={{ animationDelay: "0.15s" }}>
             <SearchHistory history={history} loading={historyLoading} />
+          </div>
+
+          {/* Order History */}
+          <div className="animate-fade-in" style={{ animationDelay: "0.18s" }}>
+            <OrderHistory 
+              orders={orders} 
+              loading={ordersLoading} 
+              onOrderVerified={() => {
+                loadUser();
+                if (user) loadOrders(user.id);
+              }} 
+            />
           </div>
 
           {/* Buy Credits Section */}
