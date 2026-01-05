@@ -1,21 +1,30 @@
-import { useLocation } from "react-router-dom";
-import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Home, ArrowLeft } from "lucide-react";
 
 const NotFound = () => {
-  const location = useLocation();
-
-  useEffect(() => {
-    console.error("404 Error: User attempted to access non-existent route:", location.pathname);
-  }, [location.pathname]);
+  const navigate = useNavigate();
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">404</h1>
-        <p className="mb-4 text-xl text-muted-foreground">Oops! Page not found</p>
-        <a href="/" className="text-primary underline hover:text-primary/90">
-          Return to Home
-        </a>
+    <div className="min-h-screen bg-background relative flex items-center justify-center">
+      <div className="fixed inset-0 bg-grid opacity-30 pointer-events-none" />
+      <div className="hero-glow" />
+      
+      <div className="text-center relative z-10 animate-fade-in">
+        <h1 className="text-8xl font-bold gradient-text mb-4">404</h1>
+        <p className="text-xl text-muted-foreground mb-8">
+          Oops! The page you're looking for doesn't exist.
+        </p>
+        <div className="flex items-center justify-center gap-4">
+          <Button variant="glass" onClick={() => navigate(-1)}>
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Go Back
+          </Button>
+          <Button variant="glow" onClick={() => navigate("/")}>
+            <Home className="w-4 h-4 mr-2" />
+            Home
+          </Button>
+        </div>
       </div>
     </div>
   );
