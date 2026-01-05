@@ -21,7 +21,13 @@ serve(async (req) => {
     const payload = await req.json();
     console.log('Webhook received:', JSON.stringify(payload));
 
-    const { order_id, order_status, payment_status } = payload.data || payload;
+    // Cashfree webhook structure: { data: { order: { order_id }, payment: { payment_status } } }
+    const data = payload.data || payload;
+    const order_id = data.order?.order_id || data.order_id;
+    const order_status = data.order?.order_status || data.order_status;
+    const payment_status = data.payment?.payment_status || data.payment_status;
+
+    console.log('Extracted order_id:', order_id, 'payment_status:', payment_status);
 
     if (!order_id) {
       console.error('No order_id in webhook payload');
