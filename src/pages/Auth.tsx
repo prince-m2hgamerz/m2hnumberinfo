@@ -45,7 +45,6 @@ const Auth = () => {
 
     try {
       if (isLogin) {
-        // Check if user exists
         const { data: existingUser, error } = await supabase
           .from('users')
           .select('*')
@@ -57,7 +56,7 @@ const Auth = () => {
         if (!existingUser) {
           toast({
             title: "User Not Found",
-            description: "No account found with this username. Try signing up.",
+            description: "No account found. Try signing up.",
             variant: "destructive",
           });
           setLoading(false);
@@ -67,7 +66,7 @@ const Auth = () => {
         if (existingUser.banned) {
           toast({
             title: "Account Banned",
-            description: "Your account has been banned. Please contact support.",
+            description: "Please contact support.",
             variant: "destructive",
           });
           setLoading(false);
@@ -82,7 +81,6 @@ const Auth = () => {
         navigate("/dashboard", { state: { selectedPlan } });
 
       } else {
-        // Check if username already exists
         const { data: existingUser, error: checkError } = await supabase
           .from('users')
           .select('username')
@@ -94,14 +92,13 @@ const Auth = () => {
         if (existingUser) {
           toast({
             title: "Username Taken",
-            description: "This username is already registered. Try logging in.",
+            description: "This username is already registered.",
             variant: "destructive",
           });
           setLoading(false);
           return;
         }
 
-        // Create new user with 5 free credits
         const { error: createError } = await supabase
           .from('users')
           .insert({ username: trimmedUsername, credits: 5 });
@@ -111,7 +108,7 @@ const Auth = () => {
         localStorage.setItem("username", trimmedUsername);
         toast({
           title: "Account created!",
-          description: "Your account has been created with 5 free credits.",
+          description: "You have 5 free credits to start.",
         });
         navigate("/dashboard", { state: { selectedPlan } });
       }
@@ -129,48 +126,46 @@ const Auth = () => {
 
   return (
     <div className="min-h-screen bg-background relative">
-      <div className="fixed inset-0 bg-grid opacity-30 pointer-events-none" />
+      <div className="fixed inset-0 bg-grid opacity-40 pointer-events-none" />
       <div className="hero-glow" />
       
       <Navbar />
 
-      <main className="pt-32 pb-20 px-4">
-        <div className="container max-w-md mx-auto">
-          <Card variant="glass" className="animate-slide-up">
-            <CardHeader className="text-center">
-              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                <User className="w-8 h-8 text-primary" />
+      <main className="pt-28 pb-16 px-4">
+        <div className="container max-w-sm mx-auto">
+          <Card className="animate-slide-up">
+            <CardHeader className="text-center pb-4">
+              <div className="w-12 h-12 rounded-md bg-secondary flex items-center justify-center mx-auto mb-4">
+                <User className="w-6 h-6 text-foreground" />
               </div>
-              <CardTitle className="text-2xl">
+              <CardTitle className="text-xl">
                 {isLogin ? "Welcome Back" : "Create Account"}
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-sm">
                 {isLogin 
                   ? "Enter your username to continue" 
                   : "Choose a username to get started"}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-6">
+              <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Username</label>
                   <Input
                     type="text"
-                    placeholder="Enter your username"
+                    placeholder="Username"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    className="text-lg"
                     autoFocus
                   />
                   <p className="text-xs text-muted-foreground">
-                    Only letters, numbers, and underscores allowed
+                    Letters, numbers, and underscores only
                   </p>
                 </div>
 
                 {selectedPlan && (
-                  <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
-                    <p className="text-sm text-muted-foreground">Selected plan:</p>
-                    <p className="font-semibold text-foreground">
+                  <div className="p-3 rounded-md bg-secondary border border-border">
+                    <p className="text-xs text-muted-foreground">Selected plan</p>
+                    <p className="font-medium text-foreground text-sm">
                       {selectedPlan.credits} credits for ₹{selectedPlan.price}
                     </p>
                   </div>
@@ -178,9 +173,8 @@ const Auth = () => {
 
                 <Button 
                   type="submit" 
-                  variant="glow" 
                   size="lg" 
-                  className="w-full gap-2"
+                  className="w-full"
                   disabled={loading}
                 >
                   {loading ? (
@@ -188,7 +182,7 @@ const Auth = () => {
                   ) : (
                     <>
                       {isLogin ? "Login" : "Create Account"}
-                      <ArrowRight className="w-4 h-4" />
+                      <ArrowRight className="w-4 h-4 ml-2" />
                     </>
                   )}
                 </Button>
@@ -197,7 +191,7 @@ const Auth = () => {
                   <button
                     type="button"
                     onClick={() => setIsLogin(!isLogin)}
-                    className="text-sm text-muted-foreground hover:text-primary transition-colors"
+                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                   >
                     {isLogin 
                       ? "Don't have an account? Sign up" 
@@ -209,8 +203,8 @@ const Auth = () => {
           </Card>
 
           {!isLogin && (
-            <p className="text-center text-sm text-muted-foreground mt-6 animate-fade-in">
-              🎉 New accounts get <span className="text-primary font-semibold">5 free credits</span> to try!
+            <p className="text-center text-sm text-muted-foreground mt-4 animate-fade-in">
+              New accounts get <span className="text-foreground font-medium">5 free credits</span>
             </p>
           )}
         </div>

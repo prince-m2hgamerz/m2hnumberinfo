@@ -3,7 +3,7 @@ import { Navbar } from "@/components/Navbar";
 import { FeaturesSection } from "@/components/FeaturesSection";
 import { PricingSection } from "@/components/PricingSection";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Phone, Sparkles } from "lucide-react";
+import { ArrowRight, Phone, MapPin, User } from "lucide-react";
 
 const Index = () => {
   const navigate = useNavigate();
@@ -18,61 +18,78 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background relative">
-      {/* Background effects */}
-      <div className="fixed inset-0 bg-grid opacity-30 pointer-events-none" />
+      {/* Subtle background effects */}
+      <div className="fixed inset-0 bg-grid opacity-40 pointer-events-none" />
       <div className="hero-glow" />
       
       <Navbar />
 
       {/* Hero Section */}
-      <section className="pt-32 pb-20 px-4 relative">
-        <div className="container max-w-6xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 mb-8 animate-fade-in">
-            <Sparkles className="w-4 h-4 text-primary" />
-            <span className="text-sm text-primary font-medium">Trusted by 10,000+ users</span>
+      <section className="pt-32 pb-24 px-4 relative">
+        <div className="container max-w-4xl mx-auto text-center">
+          {/* Badge */}
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-border bg-secondary/50 mb-8 animate-fade-in">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
+            </span>
+            <span className="text-sm text-muted-foreground">10,000+ lookups completed</span>
           </div>
           
-          <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold text-foreground mb-6 animate-slide-up">
-            Get Instant{" "}
-            <span className="gradient-text">Number Info</span>
+          {/* Main heading */}
+          <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-foreground mb-6 animate-slide-up tracking-tight">
+            Phone Number
             <br />
-            In Seconds
+            <span className="gradient-text">Intelligence</span>
           </h1>
           
-          <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 animate-fade-in" style={{ animationDelay: "0.2s" }}>
-            The most reliable mobile number lookup service in India. Get name, address, and circle information instantly with our pay-as-you-go credit system.
+          {/* Subheading */}
+          <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 animate-fade-in text-pretty" style={{ animationDelay: "0.1s" }}>
+            Get instant access to name, address, and location data for any Indian mobile number. Simple credits, no subscriptions.
           </p>
           
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 animate-fade-in" style={{ animationDelay: "0.3s" }}>
-            <Button onClick={handleGetStarted} variant="glow" size="xl" className="gap-2">
-              Get Started Free
-              <ArrowRight className="w-5 h-5" />
+          {/* CTA Buttons */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 animate-fade-in" style={{ animationDelay: "0.2s" }}>
+            <Button onClick={handleGetStarted} size="lg" className="w-full sm:w-auto">
+              Start Free
+              <ArrowRight className="w-4 h-4" />
             </Button>
-            <Button variant="glass" size="xl" className="gap-2" onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}>
+            <Button 
+              variant="outline" 
+              size="lg" 
+              className="w-full sm:w-auto"
+              onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}
+            >
               View Pricing
             </Button>
           </div>
 
           {/* Demo Card */}
-          <div className="mt-16 max-w-md mx-auto animate-float">
-            <div className="glass-card p-6 text-left">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
-                  <Phone className="w-5 h-5 text-primary" />
+          <div className="mt-20 max-w-sm mx-auto animate-float">
+            <div className="rounded-lg border border-border bg-card p-5 text-left">
+              <div className="flex items-center gap-3 mb-4 pb-4 border-b border-border">
+                <div className="w-10 h-10 rounded-md bg-secondary flex items-center justify-center">
+                  <Phone className="w-5 h-5 text-foreground" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Sample Result</p>
-                  <p className="font-mono text-foreground">98XXXXXXXX</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Query</p>
+                  <p className="font-mono text-foreground">+91 98XXX XXXXX</p>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 rounded-lg bg-secondary/50">
-                  <p className="text-xs text-muted-foreground">Name</p>
-                  <p className="text-sm font-medium text-foreground">John Doe</p>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <User className="w-4 h-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Name</p>
+                    <p className="text-sm font-medium text-foreground">Rahul Sharma</p>
+                  </div>
                 </div>
-                <div className="p-3 rounded-lg bg-secondary/50">
-                  <p className="text-xs text-muted-foreground">Circle</p>
-                  <p className="text-sm font-medium text-foreground">Maharashtra</p>
+                <div className="flex items-center gap-3">
+                  <MapPin className="w-4 h-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Location</p>
+                    <p className="text-sm font-medium text-foreground">Maharashtra, Mumbai</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -87,9 +104,13 @@ const Index = () => {
       </div>
 
       {/* Footer */}
-      <footer className="py-8 px-4 border-t border-border/50">
-        <div className="container max-w-6xl mx-auto text-center text-sm text-muted-foreground">
-          <p>© 2024 NumberInfo. All rights reserved.</p>
+      <footer className="py-8 px-4 border-t border-border">
+        <div className="container max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <Phone className="w-4 h-4 text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">NumberInfo</span>
+          </div>
+          <p className="text-sm text-muted-foreground">© 2024 All rights reserved.</p>
         </div>
       </footer>
     </div>
