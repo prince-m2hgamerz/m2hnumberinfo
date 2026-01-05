@@ -20,6 +20,7 @@ export type Database = {
           credits: number
           id: string
           is_active: boolean
+          is_featured: boolean
           is_popular: boolean
           price: number
           updated_at: string
@@ -29,6 +30,7 @@ export type Database = {
           credits: number
           id?: string
           is_active?: boolean
+          is_featured?: boolean
           is_popular?: boolean
           price: number
           updated_at?: string
@@ -38,9 +40,46 @@ export type Database = {
           credits?: number
           id?: string
           is_active?: boolean
+          is_featured?: boolean
           is_popular?: boolean
           price?: number
           updated_at?: string
+        }
+        Relationships: []
+      }
+      help_requests: {
+        Row: {
+          admin_reply: string | null
+          created_at: string
+          id: string
+          message: string
+          status: string
+          subject: string
+          updated_at: string
+          user_id: string
+          username: string
+        }
+        Insert: {
+          admin_reply?: string | null
+          created_at?: string
+          id?: string
+          message: string
+          status?: string
+          subject: string
+          updated_at?: string
+          user_id: string
+          username: string
+        }
+        Update: {
+          admin_reply?: string | null
+          created_at?: string
+          id?: string
+          message?: string
+          status?: string
+          subject?: string
+          updated_at?: string
+          user_id?: string
+          username?: string
         }
         Relationships: []
       }

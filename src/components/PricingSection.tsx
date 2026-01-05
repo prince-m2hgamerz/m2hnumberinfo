@@ -1,30 +1,49 @@
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Check, Sparkles } from "lucide-react";
+import { Check, Sparkles, Crown, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+
+interface CreditPack {
+  id: string;
+  credits: number;
+  price: number;
+  is_popular: boolean;
+  is_featured: boolean;
+}
 
 interface PricingCardProps {
   credits: number;
   price: number;
   popular?: boolean;
+  featured?: boolean;
   onSelect: () => void;
 }
 
-const PricingCard = ({ credits, price, popular, onSelect }: PricingCardProps) => {
+const PricingCard = ({ credits, price, popular, featured, onSelect }: PricingCardProps) => {
   const pricePerCredit = (price / credits).toFixed(2);
+  const isHighlighted = popular || featured;
   
   return (
     <Card 
-      variant={popular ? "glow" : "glass"} 
-      className={`relative overflow-hidden ${popular ? 'scale-105 z-10' : ''}`}
+      variant={isHighlighted ? "glow" : "glass"} 
+      className={`relative overflow-hidden ${isHighlighted ? 'scale-105 z-10' : ''}`}
     >
-      {popular && (
+      {featured && (
+        <div className="absolute top-0 left-0 right-0 bg-gradient-to-r from-warning to-primary py-1 text-center">
+          <span className="text-xs font-semibold text-primary-foreground flex items-center justify-center gap-1">
+            <Crown className="w-3 h-3" /> FEATURED DEAL
+          </span>
+        </div>
+      )}
+      {popular && !featured && (
         <div className="absolute top-0 left-0 right-0 bg-primary py-1 text-center">
           <span className="text-xs font-semibold text-primary-foreground flex items-center justify-center gap-1">
             <Sparkles className="w-3 h-3" /> MOST POPULAR
           </span>
         </div>
       )}
-      <CardHeader className={popular ? "pt-10" : ""}>
+      <CardHeader className={isHighlighted ? "pt-10" : ""}>
         <CardTitle className="text-center">
           <span className="text-4xl font-bold font-mono gradient-text">{credits}</span>
           <span className="text-muted-foreground text-lg ml-2">Credits</span>
@@ -53,7 +72,7 @@ const PricingCard = ({ credits, price, popular, onSelect }: PricingCardProps) =>
         </ul>
         <Button 
           onClick={onSelect}
-          variant={popular ? "glow" : "glass"} 
+          variant={isHighlighted ? "glow" : "glass"} 
           className="w-full"
           size="lg"
         >
@@ -69,11 +88,32 @@ interface PricingSectionProps {
 }
 
 export const PricingSection = ({ onSelectPlan }: PricingSectionProps) => {
-  const plans = [
-    { credits: 10, price: 5 },
-    { credits: 50, price: 30, popular: true },
-    { credits: 100, price: 80 },
-  ];
+  const [packs, setPacks] = useState<CreditPack[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadPacks = async () => {
+      const { data } = await supabase
+        .from('credit_packs')
+        .select('*')
+        .eq('is_active', true)
+        .order('credits', { ascending: true });
+      
+      if (data) setPacks(data);
+      setLoading(false);
+    };
+    loadPacks();
+  }, []);
+
+  if (loading) {
+    return (
+      <section className="py-20 px-4 relative">
+        <div className="container max-w-5xl mx-auto flex justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="py-20 px-4 relative">
@@ -87,16 +127,19 @@ export const PricingSection = ({ onSelectPlan }: PricingSectionProps) => {
             Choose a credit pack that fits your needs. No hidden fees, no subscriptions.
           </p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-          {plans.map((plan, index) => (
+        <div className={`grid grid-cols-1 gap-6 items-center ${packs.length <= 3 ? 'md:grid-cols-3' : 'md:grid-cols-4'}`}>
+          {packs.map((pack, index) => (
             <div 
-              key={plan.credits} 
+              key={pack.id} 
               className="animate-slide-up"
               style={{ animationDelay: `${0.1 * (index + 1)}s` }}
             >
               <PricingCard 
-                {...plan} 
-                onSelect={() => onSelectPlan(plan.credits, plan.price)} 
+                credits={pack.credits}
+                price={Number(pack.price)}
+                popular={pack.is_popular}
+                featured={pack.is_featured}
+                onSelect={() => onSelectPlan(pack.credits, Number(pack.price))} 
               />
             </div>
           ))}

@@ -4,6 +4,7 @@ import { Navbar } from "@/components/Navbar";
 import { CreditDisplay } from "@/components/CreditDisplay";
 import { NumberLookup } from "@/components/NumberLookup";
 import { SearchHistory } from "@/components/SearchHistory";
+import { HelpSection } from "@/components/HelpSection";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -346,6 +347,11 @@ const Dashboard = () => {
               </div>
             </CardContent>
           </Card>
+
+          {/* Help Section */}
+          <div className="animate-fade-in" style={{ animationDelay: "0.25s" }}>
+            <HelpSection userId={user.id} username={user.username} />
+          </div>
         </div>
       </main>
     </div>
