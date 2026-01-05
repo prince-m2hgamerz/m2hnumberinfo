@@ -169,21 +169,22 @@ const Admin = () => {
       if (helpError) throw helpError;
       setHelpRequests(helpData || []);
 
-      // Load payment settings
-      const { data: settingsData, error: settingsError } = await supabase
-        .from('payment_settings')
-        .select('*');
+      // Load payment settings via edge function
+      const { data: settingsResponse } = await supabase.functions.invoke('get-payment-settings', {
+        body: { adminPassword: ADMIN_PASSWORD },
+      });
 
-      if (!settingsError && settingsData) {
-        settingsData.forEach((setting: { setting_key: string; setting_value: string }) => {
-          if (setting.setting_key === 'cashfree_mode') {
-            setCashfreeMode(setting.setting_value as 'sandbox' | 'production');
-          } else if (setting.setting_key === 'cashfree_app_id') {
-            setCashfreeAppId(setting.setting_value);
-          } else if (setting.setting_key === 'cashfree_secret_key') {
-            setCashfreeSecretKey(setting.setting_value);
-          }
-        });
+      if (settingsResponse?.settings) {
+        const settings = settingsResponse.settings;
+        if (settings['cashfree_mode']) {
+          setCashfreeMode(settings['cashfree_mode'] as 'sandbox' | 'production');
+        }
+        if (settings['cashfree_app_id']) {
+          setCashfreeAppId(settings['cashfree_app_id']);
+        }
+        if (settings['cashfree_secret_key']) {
+          setCashfreeSecretKey(settings['cashfree_secret_key']);
+        }
       }
 
     } catch (error) {
@@ -502,21 +503,16 @@ const Admin = () => {
   const handleSavePaymentSettings = async () => {
     setSavingSettings(true);
     try {
-      // Update all settings
-      const updates = [
-        { setting_key: 'cashfree_mode', setting_value: cashfreeMode },
-        { setting_key: 'cashfree_app_id', setting_value: cashfreeAppId },
-        { setting_key: 'cashfree_secret_key', setting_value: cashfreeSecretKey },
-      ];
+      const { data, error } = await supabase.functions.invoke('update-payment-settings', {
+        body: {
+          cashfreeMode,
+          cashfreeAppId,
+          cashfreeSecretKey,
+          adminPassword: ADMIN_PASSWORD,
+        },
+      });
 
-      for (const update of updates) {
-        const { error } = await supabase
-          .from('payment_settings')
-          .update({ setting_value: update.setting_value })
-          .eq('setting_key', update.setting_key);
-
-        if (error) throw error;
-      }
+      if (error) throw error;
 
       toast({
         title: "Settings Saved",
