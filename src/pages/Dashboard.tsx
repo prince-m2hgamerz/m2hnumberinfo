@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { openCashfreeCheckout } from "@/lib/cashfree";
-import { CreditCard, Sparkles, Check, Loader2, ExternalLink } from "lucide-react";
+import { CreditCard, Sparkles, Check, Loader2, ExternalLink, Bell } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 interface User {
@@ -161,6 +161,59 @@ const Dashboard = () => {
       loadOrders(user.id);
     }
   }, [user, loadHistory, loadOrders]);
+
+  // Subscribe to real-time credit updates
+  useEffect(() => {
+    if (!user) return;
+
+    console.log("Setting up realtime subscription for user:", user.id);
+    
+    const channel = supabase
+      .channel('user-credits-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'users',
+          filter: `id=eq.${user.id}`
+        },
+        (payload) => {
+          console.log('Realtime update received:', payload);
+          const newCredits = (payload.new as User).credits;
+          const oldCredits = (payload.old as User).credits;
+          
+          if (newCredits > oldCredits) {
+            const addedCredits = newCredits - oldCredits;
+            console.log(`Credits added via webhook: +${addedCredits}`);
+            
+            // Show notification
+            setCreditsAdded({ credits: addedCredits, newBalance: newCredits });
+            toast({
+              title: "🎉 Credits Added!",
+              description: `+${addedCredits} credits have been added to your account via payment.`,
+            });
+            
+            // Update local user state
+            setUser(prev => prev ? { ...prev, credits: newCredits } : null);
+            
+            // Refresh orders to show updated status
+            loadOrders(user.id);
+            
+            // Auto-hide after 10 seconds
+            setTimeout(() => setCreditsAdded(null), 10000);
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Realtime subscription status:', status);
+      });
+
+    return () => {
+      console.log('Cleaning up realtime subscription');
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, toast, loadOrders]);
 
   // Handle payment return
   useEffect(() => {
