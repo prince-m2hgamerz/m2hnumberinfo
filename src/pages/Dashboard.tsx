@@ -9,8 +9,9 @@ import { OrderHistory } from "@/components/OrderHistory";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { useCreditNotification } from "@/hooks/useCreditNotification";
 import { openCashfreeCheckout } from "@/lib/cashfree";
-import { CreditCard, Sparkles, Check, Loader2, ExternalLink, Bell } from "lucide-react";
+import { CreditCard, Sparkles, Check, Loader2, ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 interface User {
@@ -58,6 +59,7 @@ const Dashboard = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
+  const { playNotificationSound } = useCreditNotification();
   
   const selectedPlan = location.state?.selectedPlan;
 
@@ -186,6 +188,9 @@ const Dashboard = () => {
           if (newCredits > oldCredits) {
             const addedCredits = newCredits - oldCredits;
             console.log(`Credits added via webhook: +${addedCredits}`);
+            
+            // Play notification sound
+            playNotificationSound();
             
             // Show notification
             setCreditsAdded({ credits: addedCredits, newBalance: newCredits });
