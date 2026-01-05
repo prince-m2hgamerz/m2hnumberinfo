@@ -1,124 +1,117 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Navbar } from "@/components/Navbar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { User, ArrowRight, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { Mail, Lock, ArrowRight, Loader2, Eye, EyeOff } from "lucide-react";
+import { z } from "zod";
+
+const authSchema = z.object({
+  email: z.string().trim().email("Please enter a valid email address"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
 
 const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
+  const { user, signIn, signUp } = useAuth();
   
   const selectedPlan = location.state?.selectedPlan;
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [user, navigate]);
+
+  const validateForm = () => {
+    try {
+      authSchema.parse({ email, password });
+      setErrors({});
+      return true;
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const newErrors: { email?: string; password?: string } = {};
+        error.errors.forEach((err) => {
+          if (err.path[0] === "email") newErrors.email = err.message;
+          if (err.path[0] === "password") newErrors.password = err.message;
+        });
+        setErrors(newErrors);
+      }
+      return false;
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const trimmedUsername = username.trim().toLowerCase();
-
-    if (!trimmedUsername || trimmedUsername.length < 3) {
-      toast({
-        title: "Invalid Username",
-        description: "Username must be at least 3 characters long.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!/^[a-zA-Z0-9_]+$/.test(trimmedUsername)) {
-      toast({
-        title: "Invalid Username",
-        description: "Username can only contain letters, numbers, and underscores.",
-        variant: "destructive",
-      });
-      return;
-    }
+    if (!validateForm()) return;
 
     setLoading(true);
 
     try {
       if (isLogin) {
-        const { data: existingUser, error } = await supabase
-          .from('users')
-          .select('*')
-          .eq('username', trimmedUsername)
-          .maybeSingle();
-
-        if (error) throw error;
-
-        if (!existingUser) {
-          toast({
-            title: "User Not Found",
-            description: "No account found. Try signing up.",
-            variant: "destructive",
-          });
-          setLoading(false);
+        const { error } = await signIn(email.trim(), password);
+        
+        if (error) {
+          if (error.message.includes("Invalid login credentials")) {
+            toast({
+              title: "Login Failed",
+              description: "Invalid email or password. Please try again.",
+              variant: "destructive",
+            });
+          } else {
+            toast({
+              title: "Login Failed",
+              description: error.message,
+              variant: "destructive",
+            });
+          }
           return;
         }
 
-        if (existingUser.banned) {
-          toast({
-            title: "Account Banned",
-            description: "Please contact support.",
-            variant: "destructive",
-          });
-          setLoading(false);
-          return;
-        }
-
-        localStorage.setItem("username", trimmedUsername);
         toast({
           title: "Welcome back!",
-          description: `Logged in as ${trimmedUsername}`,
+          description: "You have been logged in successfully.",
         });
-        navigate("/dashboard", { state: { selectedPlan } });
-
+        navigate("/dashboard", { state: { selectedPlan }, replace: true });
       } else {
-        const { data: existingUser, error: checkError } = await supabase
-          .from('users')
-          .select('username')
-          .eq('username', trimmedUsername)
-          .maybeSingle();
-
-        if (checkError) throw checkError;
-
-        if (existingUser) {
-          toast({
-            title: "Username Taken",
-            description: "This username is already registered.",
-            variant: "destructive",
-          });
-          setLoading(false);
+        const { error } = await signUp(email.trim(), password);
+        
+        if (error) {
+          if (error.message.includes("already registered")) {
+            toast({
+              title: "Email Already Registered",
+              description: "This email is already in use. Try logging in instead.",
+              variant: "destructive",
+            });
+          } else {
+            toast({
+              title: "Sign Up Failed",
+              description: error.message,
+              variant: "destructive",
+            });
+          }
           return;
         }
 
-        const { error: createError } = await supabase
-          .from('users')
-          .insert({ username: trimmedUsername, credits: 5 });
-
-        if (createError) throw createError;
-
-        localStorage.setItem("username", trimmedUsername);
         toast({
-          title: "Account created!",
-          description: "You have 5 free credits to start.",
+          title: "Account Created!",
+          description: "Check your email to confirm your account.",
         });
-        navigate("/dashboard", { state: { selectedPlan } });
       }
-    } catch (error) {
-      console.error("Auth error:", error);
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "An error occurred",
-        variant: "destructive",
-      });
     } finally {
       setLoading(false);
     }
@@ -136,30 +129,64 @@ const Auth = () => {
           <Card className="animate-slide-up">
             <CardHeader className="text-center pb-4">
               <div className="w-12 h-12 rounded-md bg-secondary flex items-center justify-center mx-auto mb-4">
-                <User className="w-6 h-6 text-foreground" />
+                <Mail className="w-6 h-6 text-foreground" />
               </div>
               <CardTitle className="text-xl">
                 {isLogin ? "Welcome Back" : "Create Account"}
               </CardTitle>
               <CardDescription className="text-sm">
                 {isLogin 
-                  ? "Enter your username to continue" 
-                  : "Choose a username to get started"}
+                  ? "Sign in to your account" 
+                  : "Sign up with your email"}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Input
-                    type="text"
-                    placeholder="Username"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    autoFocus
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Letters, numbers, and underscores only
-                  </p>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      type="email"
+                      placeholder="Email address"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="pl-10"
+                      autoFocus
+                      autoComplete="email"
+                    />
+                  </div>
+                  {errors.email && (
+                    <p className="text-xs text-destructive">{errors.email}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      type={showPassword ? "text" : "password"}
+                      placeholder="Password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="pl-10 pr-10"
+                      autoComplete={isLogin ? "current-password" : "new-password"}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  {errors.password && (
+                    <p className="text-xs text-destructive">{errors.password}</p>
+                  )}
+                  {!isLogin && (
+                    <p className="text-xs text-muted-foreground">
+                      Minimum 6 characters
+                    </p>
+                  )}
                 </div>
 
                 {selectedPlan && (
@@ -181,7 +208,7 @@ const Auth = () => {
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <>
-                      {isLogin ? "Login" : "Create Account"}
+                      {isLogin ? "Sign In" : "Create Account"}
                       <ArrowRight className="w-4 h-4 ml-2" />
                     </>
                   )}
@@ -190,12 +217,15 @@ const Auth = () => {
                 <div className="text-center">
                   <button
                     type="button"
-                    onClick={() => setIsLogin(!isLogin)}
+                    onClick={() => {
+                      setIsLogin(!isLogin);
+                      setErrors({});
+                    }}
                     className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                   >
                     {isLogin 
                       ? "Don't have an account? Sign up" 
-                      : "Already have an account? Login"}
+                      : "Already have an account? Sign in"}
                   </button>
                 </div>
               </form>
@@ -204,7 +234,7 @@ const Auth = () => {
 
           {!isLogin && (
             <p className="text-center text-sm text-muted-foreground mt-4 animate-fade-in">
-              New accounts get <span className="text-foreground font-medium">5 free credits</span>
+              You'll receive a confirmation email
             </p>
           )}
         </div>
