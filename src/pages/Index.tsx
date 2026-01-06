@@ -121,12 +121,18 @@ const Index = () => {
 
       {/* Footer */}
       <footer className="py-8 px-4 border-t border-border">
-        <div className="container max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <Phone className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">NumberInfo</span>
+        <div className="container max-w-4xl mx-auto">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-4">
+            <div className="flex items-center gap-2">
+              <Phone className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">NumberInfo</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <button onClick={() => navigate("/privacy")} className="text-sm text-muted-foreground hover:text-foreground transition-colors">Privacy Policy</button>
+              <button onClick={() => navigate("/terms")} className="text-sm text-muted-foreground hover:text-foreground transition-colors">Terms of Service</button>
+            </div>
           </div>
-          <p className="text-sm text-muted-foreground">© 2024 All rights reserved.</p>
+          <p className="text-xs text-muted-foreground text-center">© 2025 NumberInfo. All rights reserved. This service is for informational purposes only.</p>
         </div>
       </footer>
     </div>

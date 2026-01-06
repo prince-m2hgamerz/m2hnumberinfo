@@ -1,8 +1,12 @@
+# robots.txt for NumberInfo
+
 User-agent: Googlebot
 Allow: /
+Crawl-delay: 1
 
 User-agent: Bingbot
 Allow: /
+Crawl-delay: 1
 
 User-agent: Twitterbot
 Allow: /
@@ -10,5 +14,23 @@ Allow: /
 User-agent: facebookexternalhit
 Allow: /
 
+User-agent: LinkedInBot
+Allow: /
+
+User-agent: Slurp
+Allow: /
+Crawl-delay: 1
+
+User-agent: DuckDuckBot
+Allow: /
+
 User-agent: *
 Allow: /
+Crawl-delay: 2
+
+# Disallow admin and auth pages
+Disallow: /admin
+Disallow: /reset-password
+
+# Sitemap location
+Sitemap: https://numberinfo.lovable.app/sitemap.xml
