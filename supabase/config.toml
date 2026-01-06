@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.manage-roles]
 verify_jwt = false
+
+[functions.check-expired-orders]
+verify_jwt = false
