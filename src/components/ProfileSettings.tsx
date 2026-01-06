@@ -9,9 +9,10 @@ import { User, Settings, Loader2, Save } from "lucide-react";
 interface ProfileSettingsProps {
   userId: string;
   userEmail: string;
+  onProfileUpdate?: () => void;
 }
 
-export const ProfileSettings = ({ userId, userEmail }: ProfileSettingsProps) => {
+export const ProfileSettings = ({ userId, userEmail, onProfileUpdate }: ProfileSettingsProps) => {
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -88,6 +89,7 @@ export const ProfileSettings = ({ userId, userEmail }: ProfileSettingsProps) => 
         title: "Profile Updated",
         description: "Your profile has been saved successfully.",
       });
+      onProfileUpdate?.();
     } catch (error) {
       console.error("Error saving profile:", error);
       toast({

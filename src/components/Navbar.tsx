@@ -99,12 +99,6 @@ export const Navbar = ({ user, onLogout }: NavbarProps) => {
                     </Button>
                   </Link>
                 )}
-                <Link to="/admin">
-                  <Button variant="outline" size="sm">
-                    <Shield className="w-4 h-4 mr-1.5" />
-                    Admin
-                  </Button>
-                </Link>
               </>
             )}
           </div>
@@ -153,12 +147,6 @@ export const Navbar = ({ user, onLogout }: NavbarProps) => {
                       </Button>
                     </Link>
                   )}
-                  <Link to="/admin" onClick={() => setMobileMenuOpen(false)}>
-                    <Button variant="outline" className="w-full justify-start">
-                      <Shield className="w-4 h-4 mr-2" />
-                      Admin
-                    </Button>
-                  </Link>
                 </>
               )}
             </div>

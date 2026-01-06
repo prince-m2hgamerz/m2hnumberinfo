@@ -9,10 +9,11 @@ import { OrderHistory } from "@/components/OrderHistory";
 import { ProfileSettings } from "@/components/ProfileSettings";
 import { ReferralSection } from "@/components/ReferralSection";
 import { ExportHistory } from "@/components/ExportHistory";
+import { NotificationCenter } from "@/components/NotificationCenter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { useCreditNotification } from "@/hooks/useCreditNotification";
+import { useNotifications } from "@/hooks/useNotifications";
 import { useAuth } from "@/contexts/AuthContext";
 import { openCashfreeCheckout } from "@/lib/cashfree";
 import { CreditCard, Check, Loader2, Settings, ChevronDown, ChevronUp } from "lucide-react";
@@ -66,8 +67,16 @@ const Dashboard = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
-  const { playNotificationSound } = useCreditNotification();
   const { user: authUser, loading: authLoading, signOut } = useAuth();
+  const { 
+    notifications, 
+    unreadCount, 
+    addNotification, 
+    markAsRead, 
+    markAllAsRead, 
+    clearAll,
+    playSound 
+  } = useNotifications(authUser?.id);
   
   const selectedPlan = location.state?.selectedPlan;
 
@@ -192,8 +201,26 @@ const Dashboard = () => {
     if (userData) {
       loadHistory(userData.id);
       loadOrders(userData.id);
+      
+      // Check for expired orders
+      const checkExpiredOrders = async () => {
+        try {
+          const { data } = await supabase.functions.invoke('check-expired-orders', {
+            body: { userId: userData.id }
+          });
+          if (data?.expiredOrders?.length > 0) {
+            data.expiredOrders.forEach((orderId: string) => {
+              addNotification('order_fail', 'Order Expired', `Order ${orderId.slice(0, 16)}... expired after 2 hours.`);
+            });
+            loadOrders(userData.id);
+          }
+        } catch (error) {
+          console.error("Error checking expired orders:", error);
+        }
+      };
+      checkExpiredOrders();
     }
-  }, [userData, loadHistory, loadOrders]);
+  }, [userData, loadHistory, loadOrders, addNotification]);
 
   // Subscribe to real-time credit updates
   useEffect(() => {
@@ -216,8 +243,9 @@ const Dashboard = () => {
           if (newCredits > oldCredits) {
             const addedCredits = newCredits - oldCredits;
             
-            playNotificationSound();
+            playSound('credit_add');
             setCreditsAdded({ credits: addedCredits, newBalance: newCredits });
+            addNotification('credit_add', 'Credits Added', `+${addedCredits} credits added to your account.`, false);
             toast({
               title: "Credits Added!",
               description: `+${addedCredits} credits added to your account.`,
@@ -227,6 +255,11 @@ const Dashboard = () => {
             loadOrders(userData.id);
             
             setTimeout(() => setCreditsAdded(null), 10000);
+          } else if (newCredits < oldCredits) {
+            const deductedCredits = oldCredits - newCredits;
+            playSound('credit_deduct');
+            addNotification('credit_deduct', 'Credits Used', `${deductedCredits} credits used for lookup.`, false);
+            setUserData(prev => prev ? { ...prev, credits: newCredits } : null);
           }
         }
       )
@@ -235,7 +268,7 @@ const Dashboard = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [userData?.id, toast, loadOrders, playNotificationSound]);
+  }, [userData?.id, toast, loadOrders, playSound, addNotification]);
 
   // Handle payment return
   useEffect(() => {
@@ -259,7 +292,8 @@ const Dashboard = () => {
       if (data.success && data.status === 'completed') {
         if (!creditsAdded) {
           setCreditsAdded({ credits: data.credits, newBalance: data.newBalance });
-          playNotificationSound();
+          playSound('order_success');
+          addNotification('order_success', 'Payment Successful', `${data.credits} credits added to your account.`, false);
           toast({
             title: "Payment Successful!",
             description: data.message,
@@ -349,6 +383,7 @@ const Dashboard = () => {
         redirectTarget: "_blank",
       });
 
+      addNotification('order_create', 'Order Created', `Order for ${credits} credits (₹${price}) created. Complete payment.`);
       toast({
         title: "Payment Page Opened",
         description: "Complete your payment in the new tab.",
@@ -382,6 +417,17 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen bg-background relative">
       <div className="fixed inset-0 bg-grid opacity-40 pointer-events-none" />
+      
+      {/* Notification Center - Fixed position */}
+      <div className="fixed top-3 right-20 sm:right-24 z-50">
+        <NotificationCenter
+          notifications={notifications}
+          unreadCount={unreadCount}
+          onMarkAsRead={markAsRead}
+          onMarkAllAsRead={markAllAsRead}
+          onClearAll={clearAll}
+        />
+      </div>
       
       <Navbar user={{ username: displayName, credits: userData.credits }} onLogout={handleLogout} />
 
@@ -444,13 +490,12 @@ const Dashboard = () => {
               orders={orders} 
               loading={ordersLoading} 
               onOrderVerified={() => {
-              loadUserData();
-              if (userData) loadOrders(userData.id);
-            }} 
+                loadUserData();
+                if (userData) loadOrders(userData.id);
+              }}
+              onNotification={(type, title, message) => addNotification(type, title, message)}
             />
           </div>
-
-          {/* Referral Section */}
           <ReferralSection userId={userData.id} username={displayName} />
 
           {/* Buy Credits Section */}
@@ -523,7 +568,11 @@ const Dashboard = () => {
             </Button>
             
             {showSettings && (
-              <ProfileSettings userId={userData.id} userEmail={authUser.email || ''} />
+              <ProfileSettings 
+                userId={userData.id} 
+                userEmail={authUser.email || ''} 
+                onProfileUpdate={() => addNotification('profile_update', 'Profile Updated', 'Your profile has been updated successfully.')}
+              />
             )}
           </div>
 

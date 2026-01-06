@@ -7,6 +7,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
@@ -19,10 +21,178 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { userId, credits, amount } = await req.json();
+    const { userId, credits, amount, resumeOrderId } = await req.json();
 
-    console.log(`Create order request - User: ${userId}, Credits: ${credits}, Amount: ${amount}`);
+    console.log(`Create order request - User: ${userId}, Credits: ${credits}, Amount: ${amount}, Resume: ${resumeOrderId || 'N/A'}`);
 
+    // Handle resume order flow
+    if (resumeOrderId) {
+      // Check if order exists and is resumable (within 2 hours)
+      const { data: existingOrder, error: orderFetchError } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('order_id', resumeOrderId)
+        .single();
+
+      if (orderFetchError || !existingOrder) {
+        console.error("Order not found for resume:", orderFetchError);
+        return new Response(JSON.stringify({ error: "Order not found" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Check if order is still pending
+      if (existingOrder.status !== 'pending') {
+        return new Response(JSON.stringify({ 
+          error: "Order cannot be resumed", 
+          status: existingOrder.status 
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Check if order is within 2 hours
+      const createdAt = new Date(existingOrder.created_at).getTime();
+      const now = Date.now();
+      if ((now - createdAt) >= TWO_HOURS_MS) {
+        // Mark as failed if expired
+        await supabase
+          .from('orders')
+          .update({ status: 'failed', updated_at: new Date().toISOString() })
+          .eq('order_id', resumeOrderId);
+
+        return new Response(JSON.stringify({ 
+          error: "Order has expired. Please create a new order.",
+          expired: true
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Get payment settings
+      const { data: settingsData } = await supabase
+        .from('payment_settings')
+        .select('setting_key, setting_value');
+
+      const settings: Record<string, string> = {};
+      settingsData?.forEach((s: { setting_key: string; setting_value: string }) => {
+        settings[s.setting_key] = s.setting_value;
+      });
+
+      const cashfreeMode = settings['cashfree_mode'] || 'sandbox';
+      const cashfreeAppId = settings['cashfree_app_id'];
+      const cashfreeSecret = settings['cashfree_secret_key'];
+
+      if (!cashfreeAppId || !cashfreeSecret) {
+        return new Response(JSON.stringify({ error: "Payment gateway not configured" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const CASHFREE_API_URL = cashfreeMode === 'production' 
+        ? "https://api.cashfree.com/pg" 
+        : "https://sandbox.cashfree.com/pg";
+      const API_VERSION = "2023-08-01";
+
+      // Try to fetch existing order status from Cashfree
+      const checkResponse = await fetch(`${CASHFREE_API_URL}/orders/${resumeOrderId}`, {
+        method: "GET",
+        headers: {
+          "x-client-id": cashfreeAppId,
+          "x-client-secret": cashfreeSecret,
+          "x-api-version": API_VERSION,
+        },
+      });
+
+      if (checkResponse.ok) {
+        const orderData = await checkResponse.json();
+        console.log("Existing Cashfree order:", JSON.stringify(orderData));
+
+        // If order is still ACTIVE, return the existing payment session
+        if (orderData.order_status === 'ACTIVE' && orderData.payment_session_id) {
+          return new Response(
+            JSON.stringify({
+              success: true,
+              orderId: resumeOrderId,
+              paymentSessionId: orderData.payment_session_id,
+              cashfreeMode,
+              resumed: true,
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+      }
+
+      // If we can't resume the existing order, create a new payment session
+      // by creating a new order with updated order_id
+      const newOrderId = `${resumeOrderId}_R${Date.now().toString(36)}`;
+      const origin = req.headers.get("origin") || "https://lovable.dev";
+
+      // Get user details
+      const { data: user } = await supabase.from("users").select("*").eq("id", existingOrder.user_id).single();
+
+      const cashfreePayload = {
+        order_id: newOrderId,
+        order_amount: parseFloat(existingOrder.amount),
+        order_currency: "INR",
+        customer_details: {
+          customer_id: existingOrder.user_id.substring(0, 25),
+          customer_name: user?.username || "Customer",
+          customer_email: `${user?.username || 'customer'}@numberinfo.local`,
+          customer_phone: "9999999999",
+        },
+        order_meta: {
+          return_url: `${origin}/dashboard?order_id=${newOrderId}&status={order_status}`,
+          notify_url: `${supabaseUrl}/functions/v1/payment-webhook`,
+        },
+      };
+
+      const cashfreeResponse = await fetch(`${CASHFREE_API_URL}/orders`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-client-id": cashfreeAppId,
+          "x-client-secret": cashfreeSecret,
+          "x-api-version": API_VERSION,
+        },
+        body: JSON.stringify(cashfreePayload),
+      });
+
+      const cashfreeData = await cashfreeResponse.json();
+
+      if (!cashfreeResponse.ok) {
+        return new Response(
+          JSON.stringify({ error: cashfreeData.message || "Payment gateway error" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      // Update the original order with new order_id (so credits get added correctly)
+      await supabase
+        .from('orders')
+        .update({ 
+          order_id: newOrderId, 
+          updated_at: new Date().toISOString() 
+        })
+        .eq('order_id', resumeOrderId);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          orderId: newOrderId,
+          paymentSessionId: cashfreeData.payment_session_id,
+          cashfreeMode,
+          resumed: true,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Regular new order flow
     if (!userId || !credits || !amount) {
       return new Response(JSON.stringify({ error: "Missing required fields" }), {
         status: 400,
