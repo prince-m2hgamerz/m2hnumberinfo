@@ -127,9 +127,11 @@ const Index = () => {
               <Phone className="w-4 h-4 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">NumberInfo</span>
             </div>
-            <div className="flex items-center gap-4">
-              <button onClick={() => navigate("/privacy")} className="text-sm text-muted-foreground hover:text-foreground transition-colors">Privacy Policy</button>
-              <button onClick={() => navigate("/terms")} className="text-sm text-muted-foreground hover:text-foreground transition-colors">Terms of Service</button>
+            <div className="flex items-center gap-4 flex-wrap justify-center">
+              <button onClick={() => navigate("/about")} className="text-sm text-muted-foreground hover:text-foreground transition-colors">About</button>
+              <button onClick={() => navigate("/contact")} className="text-sm text-muted-foreground hover:text-foreground transition-colors">Contact</button>
+              <button onClick={() => navigate("/privacy")} className="text-sm text-muted-foreground hover:text-foreground transition-colors">Privacy</button>
+              <button onClick={() => navigate("/terms")} className="text-sm text-muted-foreground hover:text-foreground transition-colors">Terms</button>
             </div>
           </div>
           <p className="text-xs text-muted-foreground text-center">© 2025 NumberInfo. All rights reserved. This service is for informational purposes only.</p>
