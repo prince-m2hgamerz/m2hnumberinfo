@@ -64,22 +64,15 @@ const Dashboard = () => {
   const [creditPacks, setCreditPacks] = useState<CreditPack[]>([]);
   const [creditsAdded, setCreditsAdded] = useState<{ credits: number; newBalance: number } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  
+
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const { user: authUser, loading: authLoading, signOut } = useAuth();
-  const { 
-    notifications, 
-    unreadCount, 
-    addNotification, 
-    markAsRead, 
-    markAllAsRead, 
-    clearAll,
-    playSound 
-  } = useNotifications(authUser?.id);
-  
+  const { notifications, unreadCount, addNotification, markAsRead, markAllAsRead, clearAll, playSound } =
+    useNotifications(authUser?.id);
+
   const selectedPlan = location.state?.selectedPlan;
 
   // Redirect if not authenticated
@@ -94,11 +87,7 @@ const Dashboard = () => {
 
     try {
       // Check if user exists in users table
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', authUser.id)
-        .maybeSingle();
+      const { data, error } = await supabase.from("users").select("*").eq("id", authUser.id).maybeSingle();
 
       if (error) throw error;
 
@@ -116,20 +105,20 @@ const Dashboard = () => {
         setUserData(data);
       } else {
         // Create user entry if it doesn't exist
-        const username = authUser.email?.split('@')[0] || 'user';
+        const username = authUser.email?.split("@")[0] || "user";
         const { data: newUser, error: createError } = await supabase
-          .from('users')
-          .insert({ 
+          .from("users")
+          .insert({
             id: authUser.id,
             username,
-            credits: 5 
+            credits: 2,
           })
           .select()
           .single();
 
         if (createError) throw createError;
         setUserData(newUser);
-        
+
         toast({
           title: "Welcome!",
           description: "Your account has been set up with 5 free credits.",
@@ -150,10 +139,10 @@ const Dashboard = () => {
   const loadHistory = useCallback(async (userId: string) => {
     try {
       const { data, error } = await supabase
-        .from('search_history')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
+        .from("search_history")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
         .limit(10);
 
       if (error) throw error;
@@ -168,10 +157,10 @@ const Dashboard = () => {
   const loadOrders = useCallback(async (userId: string) => {
     try {
       const { data, error } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
+        .from("orders")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
         .limit(20);
 
       if (error) throw error;
@@ -189,10 +178,10 @@ const Dashboard = () => {
       // Load credit packs
       const loadCreditPacks = async () => {
         const { data } = await supabase
-          .from('credit_packs')
-          .select('*')
-          .eq('is_active', true)
-          .order('credits', { ascending: true });
+          .from("credit_packs")
+          .select("*")
+          .eq("is_active", true)
+          .order("credits", { ascending: true });
         if (data) setCreditPacks(data);
       };
       loadCreditPacks();
@@ -203,16 +192,16 @@ const Dashboard = () => {
     if (userData) {
       loadHistory(userData.id);
       loadOrders(userData.id);
-      
+
       // Check for expired orders
       const checkExpiredOrders = async () => {
         try {
-          const { data } = await supabase.functions.invoke('check-expired-orders', {
-            body: { userId: userData.id }
+          const { data } = await supabase.functions.invoke("check-expired-orders", {
+            body: { userId: userData.id },
           });
           if (data?.expiredOrders?.length > 0) {
             data.expiredOrders.forEach((orderId: string) => {
-              addNotification('order_fail', 'Order Expired', `Order ${orderId.slice(0, 16)}... expired after 2 hours.`);
+              addNotification("order_fail", "Order Expired", `Order ${orderId.slice(0, 16)}... expired after 2 hours.`);
             });
             loadOrders(userData.id);
           }
@@ -229,41 +218,41 @@ const Dashboard = () => {
     if (!userData) return;
 
     const channel = supabase
-      .channel('user-credits-updates')
+      .channel("user-credits-updates")
       .on(
-        'postgres_changes',
+        "postgres_changes",
         {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'users',
-          filter: `id=eq.${userData.id}`
+          event: "UPDATE",
+          schema: "public",
+          table: "users",
+          filter: `id=eq.${userData.id}`,
         },
         (payload) => {
           const newCredits = (payload.new as UserData).credits;
           const oldCredits = (payload.old as UserData).credits;
-          
+
           if (newCredits > oldCredits) {
             const addedCredits = newCredits - oldCredits;
-            
-            playSound('credit_add');
+
+            playSound("credit_add");
             setCreditsAdded({ credits: addedCredits, newBalance: newCredits });
-            addNotification('credit_add', 'Credits Added', `+${addedCredits} credits added to your account.`, false);
+            addNotification("credit_add", "Credits Added", `+${addedCredits} credits added to your account.`, false);
             toast({
               title: "Credits Added!",
               description: `+${addedCredits} credits added to your account.`,
             });
-            
-            setUserData(prev => prev ? { ...prev, credits: newCredits } : null);
+
+            setUserData((prev) => (prev ? { ...prev, credits: newCredits } : null));
             loadOrders(userData.id);
-            
+
             setTimeout(() => setCreditsAdded(null), 10000);
           } else if (newCredits < oldCredits) {
             const deductedCredits = oldCredits - newCredits;
-            playSound('credit_deduct');
-            addNotification('credit_deduct', 'Credits Used', `${deductedCredits} credits used for lookup.`, false);
-            setUserData(prev => prev ? { ...prev, credits: newCredits } : null);
+            playSound("credit_deduct");
+            addNotification("credit_deduct", "Credits Used", `${deductedCredits} credits used for lookup.`, false);
+            setUserData((prev) => (prev ? { ...prev, credits: newCredits } : null));
           }
-        }
+        },
       )
       .subscribe();
 
@@ -274,28 +263,33 @@ const Dashboard = () => {
 
   // Handle payment return
   useEffect(() => {
-    const orderId = searchParams.get('order_id');
-    const status = searchParams.get('status');
+    const orderId = searchParams.get("order_id");
+    const status = searchParams.get("status");
 
     if (orderId && status) {
-      window.history.replaceState({}, '', '/dashboard');
+      window.history.replaceState({}, "", "/dashboard");
       verifyPayment(orderId);
     }
   }, [searchParams]);
 
   const verifyPayment = async (orderId: string, retryCount = 0) => {
     try {
-      const { data, error } = await supabase.functions.invoke('verify-payment', {
-        body: { orderId }
+      const { data, error } = await supabase.functions.invoke("verify-payment", {
+        body: { orderId },
       });
 
       if (error) throw error;
 
-      if (data.success && data.status === 'completed') {
+      if (data.success && data.status === "completed") {
         if (!creditsAdded) {
           setCreditsAdded({ credits: data.credits, newBalance: data.newBalance });
-          playSound('order_success');
-          addNotification('order_success', 'Payment Successful', `${data.credits} credits added to your account.`, false);
+          playSound("order_success");
+          addNotification(
+            "order_success",
+            "Payment Successful",
+            `${data.credits} credits added to your account.`,
+            false,
+          );
           toast({
             title: "Payment Successful!",
             description: data.message,
@@ -303,7 +297,7 @@ const Dashboard = () => {
           setTimeout(() => setCreditsAdded(null), 10000);
         }
         loadUserData();
-      } else if (data.status === 'pending' || data.status === 'ACTIVE') {
+      } else if (data.status === "pending" || data.status === "ACTIVE") {
         if (retryCount < 3) {
           toast({
             title: "Verifying Payment...",
@@ -316,7 +310,7 @@ const Dashboard = () => {
             description: "Credits will be added automatically.",
           });
         }
-      } else if (data.status === 'failed' || data.status === 'EXPIRED' || data.status === 'TERMINATED') {
+      } else if (data.status === "failed" || data.status === "EXPIRED" || data.status === "TERMINATED") {
         toast({
           title: "Payment Failed",
           description: "Your payment was not successful. Please try again.",
@@ -364,11 +358,11 @@ const Dashboard = () => {
 
     try {
       const { data, error } = await supabase.functions.invoke("create-order", {
-        body: { 
-          userId: userData.id, 
-          credits, 
+        body: {
+          userId: userData.id,
+          credits,
           amount: price,
-          email: authUser.email 
+          email: authUser.email,
         },
       });
 
@@ -386,7 +380,11 @@ const Dashboard = () => {
         redirectTarget: "_blank",
       });
 
-      addNotification('order_create', 'Order Created', `Order for ${credits} credits (₹${price}) created. Complete payment.`);
+      addNotification(
+        "order_create",
+        "Order Created",
+        `Order for ${credits} credits (₹${price}) created. Complete payment.`,
+      );
       toast({
         title: "Payment Page Opened",
         description: "Complete your payment in the new tab.",
@@ -407,7 +405,7 @@ const Dashboard = () => {
   const handleReferralCredits = (bonusCredits: number) => {
     if (userData) {
       setUserData({ ...userData, credits: userData.credits + bonusCredits });
-      addNotification('credit_add', 'Referral Bonus', `+${bonusCredits} credits from referral!`);
+      addNotification("credit_add", "Referral Bonus", `+${bonusCredits} credits from referral!`);
     }
   };
 
@@ -423,21 +421,21 @@ const Dashboard = () => {
     return null;
   }
 
-  const displayName = authUser.email?.split('@')[0] || 'User';
+  const displayName = authUser.email?.split("@")[0] || "User";
 
   return (
     <div className="min-h-screen bg-background relative">
       <div className="fixed inset-0 bg-grid opacity-40 pointer-events-none" />
-      
+
       {/* Payment Loading Overlay */}
       {paymentLoading && (
-        <PaymentLoadingOverlay 
-          isOpen={!!paymentLoading} 
-          credits={paymentLoading.credits} 
-          amount={paymentLoading.amount} 
+        <PaymentLoadingOverlay
+          isOpen={!!paymentLoading}
+          credits={paymentLoading.credits}
+          amount={paymentLoading.amount}
         />
       )}
-      
+
       {/* Notification Center - Fixed position */}
       <div className="fixed top-3 right-20 sm:right-24 z-50">
         <NotificationCenter
@@ -448,7 +446,7 @@ const Dashboard = () => {
           onClearAll={clearAll}
         />
       </div>
-      
+
       <Navbar user={{ username: displayName, credits: userData.credits }} onLogout={handleLogout} />
 
       <main className="pt-20 pb-16 px-4">
@@ -461,17 +459,16 @@ const Dashboard = () => {
                   <Check className="w-4 h-4 text-success" />
                 </div>
                 <div>
-                  <p className="font-medium text-success text-sm">
-                    +{creditsAdded.credits} Credits Added
-                  </p>
+                  <p className="font-medium text-success text-sm">+{creditsAdded.credits} Credits Added</p>
                   <p className="text-xs text-muted-foreground">
-                    New balance: <span className="font-mono font-medium text-foreground">{creditsAdded.newBalance}</span>
+                    New balance:{" "}
+                    <span className="font-mono font-medium text-foreground">{creditsAdded.newBalance}</span>
                   </p>
                 </div>
               </div>
-              <Button 
-                variant="ghost" 
-                size="sm" 
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => setCreditsAdded(null)}
                 className="text-muted-foreground hover:text-foreground flex-shrink-0"
               >
@@ -485,9 +482,9 @@ const Dashboard = () => {
 
           {/* Two column layout */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <NumberLookup 
+            <NumberLookup
               userId={userData.id}
-              credits={userData.credits} 
+              credits={userData.credits}
               onLookup={handleLookup}
               onHistoryUpdate={handleHistoryUpdate}
             />
@@ -506,9 +503,9 @@ const Dashboard = () => {
               <h3 className="text-sm font-medium text-muted-foreground">Order History</h3>
               <ExportHistory userId={userData.id} type="orders" />
             </div>
-            <OrderHistory 
-              orders={orders} 
-              loading={ordersLoading} 
+            <OrderHistory
+              orders={orders}
+              loading={ordersLoading}
               onOrderVerified={() => {
                 loadUserData();
                 if (userData) loadOrders(userData.id);
@@ -527,15 +524,17 @@ const Dashboard = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className={`grid gap-3 ${creditPacks.length <= 3 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-2 sm:grid-cols-4'}`}>
+              <div
+                className={`grid gap-3 ${creditPacks.length <= 3 ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-2 sm:grid-cols-4"}`}
+              >
                 {creditPacks.map((pack) => (
                   <div
                     key={pack.id}
                     className={`relative p-4 rounded-md border transition-colors cursor-pointer ${
-                      pack.is_popular 
-                        ? "bg-secondary border-muted-foreground/30" 
+                      pack.is_popular
+                        ? "bg-secondary border-muted-foreground/30"
                         : "bg-secondary/30 border-border hover:border-muted-foreground/30"
-                    } ${buyingCredits === pack.credits ? 'opacity-70' : ''}`}
+                    } ${buyingCredits === pack.credits ? "opacity-70" : ""}`}
                     onClick={() => !buyingCredits && handleBuyCredits(pack.credits, Number(pack.price))}
                   >
                     {pack.is_popular && (
@@ -554,17 +553,13 @@ const Dashboard = () => {
                       <p className="text-xs text-muted-foreground">
                         ₹{(Number(pack.price) / pack.credits).toFixed(2)}/lookup
                       </p>
-                      <Button 
-                        variant={pack.is_popular ? "default" : "outline"} 
-                        size="sm" 
+                      <Button
+                        variant={pack.is_popular ? "default" : "outline"}
+                        size="sm"
                         className="w-full"
                         disabled={!!buyingCredits}
                       >
-                        {buyingCredits === pack.credits ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          "Buy"
-                        )}
+                        {buyingCredits === pack.credits ? <Loader2 className="w-4 h-4 animate-spin" /> : "Buy"}
                       </Button>
                     </div>
                   </div>
@@ -575,23 +570,21 @@ const Dashboard = () => {
 
           {/* Settings Section */}
           <div className="space-y-4">
-            <Button
-              variant="outline"
-              className="w-full justify-between"
-              onClick={() => setShowSettings(!showSettings)}
-            >
+            <Button variant="outline" className="w-full justify-between" onClick={() => setShowSettings(!showSettings)}>
               <span className="flex items-center gap-2">
                 <Settings className="w-4 h-4" />
                 Account Settings
               </span>
               {showSettings ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </Button>
-            
+
             {showSettings && (
-              <ProfileSettings 
-                userId={userData.id} 
-                userEmail={authUser.email || ''} 
-                onProfileUpdate={() => addNotification('profile_update', 'Profile Updated', 'Your profile has been updated successfully.')}
+              <ProfileSettings
+                userId={userData.id}
+                userEmail={authUser.email || ""}
+                onProfileUpdate={() =>
+                  addNotification("profile_update", "Profile Updated", "Your profile has been updated successfully.")
+                }
               />
             )}
           </div>
