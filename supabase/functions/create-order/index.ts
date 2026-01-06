@@ -9,11 +9,32 @@ const corsHeaders = {
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 
+// Security: Input validation helper
+const validateUUID = (id: string): boolean => {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(id);
+};
+
+const validateOrderId = (orderId: string): boolean => {
+  // Order IDs should match our format: ORDER_timestamp_random or with _R suffix for resumed
+  const orderIdRegex = /^ORDER_\d+_[a-z0-9]+(_R[a-z0-9]+)?$/i;
+  return orderIdRegex.test(orderId) && orderId.length <= 100;
+};
+
+const sanitizeNumber = (value: unknown): number | null => {
+  const num = Number(value);
+  if (isNaN(num) || num <= 0 || num > 1000000) return null;
+  return num;
+};
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const requestId = crypto.randomUUID().slice(0, 8);
+  console.log(`[${requestId}] Create order request started`);
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -21,9 +42,27 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { userId, credits, amount, resumeOrderId } = await req.json();
+    const body = await req.json();
+    const { userId, credits, amount, resumeOrderId } = body;
 
-    console.log(`Create order request - User: ${userId}, Credits: ${credits}, Amount: ${amount}, Resume: ${resumeOrderId || 'N/A'}`);
+    // Security: Validate inputs
+    if (userId && !validateUUID(userId)) {
+      console.log(`[${requestId}] Invalid userId format`);
+      return new Response(JSON.stringify({ error: "Invalid request" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (resumeOrderId && !validateOrderId(resumeOrderId)) {
+      console.log(`[${requestId}] Invalid resumeOrderId format`);
+      return new Response(JSON.stringify({ error: "Invalid order ID" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    console.log(`[${requestId}] User: ${userId?.slice(0, 8)}..., Credits: ${credits}, Resume: ${resumeOrderId?.slice(0, 16) || 'N/A'}`);
 
     // Handle resume order flow
     if (resumeOrderId) {
@@ -35,9 +74,18 @@ serve(async (req) => {
         .single();
 
       if (orderFetchError || !existingOrder) {
-        console.error("Order not found for resume:", orderFetchError);
+        console.log(`[${requestId}] Order not found for resume`);
         return new Response(JSON.stringify({ error: "Order not found" }), {
           status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Security: Verify user owns this order
+      if (userId && existingOrder.user_id !== userId) {
+        console.log(`[${requestId}] Unauthorized order access attempt`);
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 403,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -192,8 +240,12 @@ serve(async (req) => {
       );
     }
 
-    // Regular new order flow
-    if (!userId || !credits || !amount) {
+    // Regular new order flow - Security: Validate all inputs
+    const validCredits = sanitizeNumber(credits);
+    const validAmount = sanitizeNumber(amount);
+
+    if (!userId || !validCredits || !validAmount) {
+      console.log(`[${requestId}] Missing or invalid required fields`);
       return new Response(JSON.stringify({ error: "Missing required fields" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -206,7 +258,7 @@ serve(async (req) => {
       .select('setting_key, setting_value');
 
     if (settingsError) {
-      console.error("Error fetching payment settings:", settingsError);
+      console.error(`[${requestId}] Error fetching payment settings:`, settingsError);
       return new Response(JSON.stringify({ error: "Failed to load payment settings" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -224,7 +276,7 @@ serve(async (req) => {
     const cashfreeSecret = settings['cashfree_secret_key'];
 
     if (!cashfreeAppId || !cashfreeSecret) {
-      console.error("Cashfree credentials not configured");
+      console.error(`[${requestId}] Cashfree credentials not configured`);
       return new Response(JSON.stringify({ error: "Payment gateway not configured. Please contact admin." }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -237,16 +289,23 @@ serve(async (req) => {
       : "https://sandbox.cashfree.com/pg";
     const API_VERSION = "2023-08-01";
 
-    console.log(`Using Cashfree ${cashfreeMode} mode`);
-    console.log("Using App ID:", cashfreeAppId?.substring(0, 10) + "...");
+    console.log(`[${requestId}] Using Cashfree ${cashfreeMode} mode`);
 
-    // Verify user exists
+    // Verify user exists and is not banned
     const { data: user, error: userError } = await supabase.from("users").select("*").eq("id", userId).single();
 
     if (userError || !user) {
-      console.error("User not found:", userError);
+      console.log(`[${requestId}] User not found`);
       return new Response(JSON.stringify({ error: "User not found" }), {
         status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (user.banned) {
+      console.log(`[${requestId}] Banned user attempted order`);
+      return new Response(JSON.stringify({ error: "Account is banned" }), {
+        status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -257,16 +316,19 @@ serve(async (req) => {
     // Get the origin for return URL
     const origin = req.headers.get("origin") || "https://lovable.dev";
 
+    // Security: Sanitize username for Cashfree
+    const safeUsername = user.username.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 50) || 'customer';
+
     // Create Cashfree order with payment_session
     const cashfreePayload = {
       order_id: orderId,
-      order_amount: parseFloat(amount),
+      order_amount: validAmount,
       order_currency: "INR",
       customer_details: {
-        customer_id: user.id.substring(0, 25), // Cashfree has a 25 char limit
-        customer_name: user.username,
-        customer_email: `${user.username}@numberinfo.local`,
-        customer_phone: "9999999999", // Required by Cashfree
+        customer_id: user.id.substring(0, 25),
+        customer_name: safeUsername,
+        customer_email: `${safeUsername}@numberinfo.local`,
+        customer_phone: "9999999999",
       },
       order_meta: {
         return_url: `${origin}/dashboard?order_id=${orderId}&status={order_status}`,
@@ -274,7 +336,7 @@ serve(async (req) => {
       },
     };
 
-    console.log("Creating Cashfree order:", JSON.stringify(cashfreePayload));
+    console.log(`[${requestId}] Creating Cashfree order for ₹${validAmount}`);
 
     const cashfreeResponse = await fetch(`${CASHFREE_API_URL}/orders`, {
       method: "POST",
@@ -288,15 +350,13 @@ serve(async (req) => {
     });
 
     const cashfreeData = await cashfreeResponse.json();
-    console.log("Cashfree response status:", cashfreeResponse.status);
-    console.log("Cashfree response:", JSON.stringify(cashfreeData));
+    console.log(`[${requestId}] Cashfree response status: ${cashfreeResponse.status}`);
 
     if (!cashfreeResponse.ok) {
-      console.error("Cashfree error:", cashfreeData);
+      console.error(`[${requestId}] Cashfree error:`, cashfreeData.message);
       return new Response(
         JSON.stringify({
           error: cashfreeData.message || "Payment gateway error",
-          details: cashfreeData,
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
@@ -306,29 +366,25 @@ serve(async (req) => {
     const { error: orderError } = await supabase.from("orders").insert({
       order_id: orderId,
       user_id: userId,
-      credits: credits,
-      amount: amount,
+      credits: validCredits,
+      amount: validAmount,
       status: "pending",
     });
 
     if (orderError) {
-      console.error("Error storing order:", orderError);
+      console.error(`[${requestId}] Error storing order:`, orderError);
       return new Response(JSON.stringify({ error: "Failed to store order" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Get payment link - Cashfree returns payment_session_id for hosted checkout
     const paymentSessionId = cashfreeData.payment_session_id;
-
-    // Build the payment URL using Cashfree's hosted checkout
     const paymentLink = paymentSessionId
       ? `https://payments.cashfree.com/order/#${paymentSessionId}`
       : cashfreeData.payment_link;
 
-    console.log("Payment session ID:", paymentSessionId);
-    console.log("Payment link:", paymentLink);
+    console.log(`[${requestId}] Order created successfully: ${orderId.slice(0, 20)}...`);
 
     return new Response(
       JSON.stringify({

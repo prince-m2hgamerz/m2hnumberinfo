@@ -9,11 +9,20 @@ const corsHeaders = {
 
 const API_VERSION = '2023-08-01';
 
+// Security: Input validation
+const validateOrderId = (orderId: string): boolean => {
+  const orderIdRegex = /^ORDER_\d+_[a-z0-9]+(_R[a-z0-9]+)?$/i;
+  return typeof orderId === 'string' && orderIdRegex.test(orderId) && orderId.length <= 100;
+};
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const requestId = crypto.randomUUID().slice(0, 8);
+  console.log(`[${requestId}] Verify payment request started`);
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -21,31 +30,34 @@ serve(async (req) => {
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { orderId } = await req.json();
+    const body = await req.json();
+    const { orderId } = body;
 
-    console.log(`Verifying payment for order: ${orderId}`);
-
-    if (!orderId) {
+    // Security: Validate orderId format
+    if (!orderId || !validateOrderId(orderId)) {
+      console.log(`[${requestId}] Invalid orderId format`);
       return new Response(
-        JSON.stringify({ error: 'Missing orderId' }),
+        JSON.stringify({ error: 'Invalid order ID' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Get payment settings from database (same as create-order)
+    console.log(`[${requestId}] Verifying order: ${orderId.slice(0, 20)}...`);
+
+    // Get payment settings from database
     const { data: settingsData, error: settingsError } = await supabase
       .from('payment_settings')
       .select('setting_key, setting_value');
 
     if (settingsError) {
-      console.error("Error fetching payment settings:", settingsError);
+      console.error(`[${requestId}] Error fetching payment settings`);
       return new Response(
         JSON.stringify({ error: "Failed to load payment settings" }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Parse settings
+    // Parse settings - hide sensitive data from logs
     const settings: Record<string, string> = {};
     settingsData?.forEach((s: { setting_key: string; setting_value: string }) => {
       settings[s.setting_key] = s.setting_value;
@@ -56,7 +68,7 @@ serve(async (req) => {
     const cashfreeSecret = settings['cashfree_secret_key'];
 
     if (!cashfreeAppId || !cashfreeSecret) {
-      console.error("Cashfree credentials not configured");
+      console.error(`[${requestId}] Cashfree credentials not configured`);
       return new Response(
         JSON.stringify({ error: "Payment gateway not configured" }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -68,8 +80,6 @@ serve(async (req) => {
       ? "https://api.cashfree.com/pg" 
       : "https://sandbox.cashfree.com/pg";
 
-    console.log(`Using Cashfree ${cashfreeMode} mode for verification`);
-
     // Check order in our database
     const { data: order, error: orderError } = await supabase
       .from('orders')
@@ -78,7 +88,7 @@ serve(async (req) => {
       .single();
 
     if (orderError || !order) {
-      console.error('Order not found:', orderId);
+      console.log(`[${requestId}] Order not found in database`);
       return new Response(
         JSON.stringify({ error: 'Order not found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -87,6 +97,7 @@ serve(async (req) => {
 
     // If already completed, return success
     if (order.status === 'completed') {
+      console.log(`[${requestId}] Order already completed`);
       return new Response(
         JSON.stringify({ 
           success: true, 
@@ -109,7 +120,7 @@ serve(async (req) => {
     });
 
     const verifyData = await verifyResponse.json();
-    console.log('Cashfree verification response:', JSON.stringify(verifyData));
+    console.log(`[${requestId}] Cashfree status: ${verifyData.order_status}`);
 
     const isSuccess = verifyData.order_status === 'PAID';
 
@@ -117,12 +128,22 @@ serve(async (req) => {
       // Get current user credits
       const { data: user, error: userError } = await supabase
         .from('users')
-        .select('credits')
+        .select('credits, banned')
         .eq('id', order.user_id)
         .single();
 
       if (userError || !user) {
         throw new Error('User not found');
+      }
+
+      // Security: Don't add credits to banned users
+      if (user.banned) {
+        console.log(`[${requestId}] Banned user payment - marking completed but not adding credits`);
+        await supabase.from('orders').update({ status: 'completed' }).eq('order_id', orderId);
+        return new Response(
+          JSON.stringify({ success: false, status: 'banned', message: 'Account is banned' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
 
       const newCredits = user.credits + order.credits;
@@ -136,7 +157,7 @@ serve(async (req) => {
       // Update order status
       await supabase
         .from('orders')
-        .update({ status: 'completed' })
+        .update({ status: 'completed', updated_at: new Date().toISOString() })
         .eq('order_id', orderId);
 
       // Update global stats
@@ -155,7 +176,7 @@ serve(async (req) => {
           .eq('id', stats.id);
       }
 
-      console.log(`Payment verified! Added ${order.credits} credits. New balance: ${newCredits}`);
+      console.log(`[${requestId}] Payment verified! +${order.credits} credits. New balance: ${newCredits}`);
 
       return new Response(
         JSON.stringify({ 
@@ -172,8 +193,9 @@ serve(async (req) => {
       if (verifyData.order_status === 'EXPIRED' || verifyData.order_status === 'TERMINATED') {
         await supabase
           .from('orders')
-          .update({ status: 'failed' })
+          .update({ status: 'failed', updated_at: new Date().toISOString() })
           .eq('order_id', orderId);
+        console.log(`[${requestId}] Order marked as failed: ${verifyData.order_status}`);
       }
 
       return new Response(
@@ -190,9 +212,8 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error in verify-payment function:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
-      JSON.stringify({ error: errorMessage }),
+      JSON.stringify({ error: 'Verification failed' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
