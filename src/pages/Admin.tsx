@@ -11,6 +11,7 @@ import { RoleManagement } from "@/components/admin/RoleManagement";
 import { AuditLogs } from "@/components/admin/AuditLogs";
 import { AnalyticsDashboard } from "@/components/admin/AnalyticsDashboard";
 import { BulkOperations } from "@/components/admin/BulkOperations";
+import { ContactSubmissions } from "@/components/admin/ContactSubmissions";
 import { 
   Shield, 
   Lock, 
@@ -585,6 +586,7 @@ const Admin = () => {
                 <TabsTrigger value="users" className="text-xs sm:text-sm px-2 sm:px-3">Users</TabsTrigger>
                 <TabsTrigger value="packs" className="text-xs sm:text-sm px-2 sm:px-3">Packs</TabsTrigger>
                 <TabsTrigger value="orders" className="text-xs sm:text-sm px-2 sm:px-3">Orders</TabsTrigger>
+                <TabsTrigger value="contact" className="text-xs sm:text-sm px-2 sm:px-3">Contact</TabsTrigger>
                 <TabsTrigger value="analytics" className="text-xs sm:text-sm px-2 sm:px-3">Analytics</TabsTrigger>
                 <TabsTrigger value="security" className="text-xs sm:text-sm px-2 sm:px-3">Security</TabsTrigger>
                 <TabsTrigger value="settings" className="text-xs sm:text-sm px-2 sm:px-3">Settings</TabsTrigger>
@@ -970,6 +972,11 @@ const Admin = () => {
                   )}
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            {/* Contact Submissions Tab */}
+            <TabsContent value="contact" className="space-y-6">
+              <ContactSubmissions />
             </TabsContent>
 
             {/* Analytics Tab */}
