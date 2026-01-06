@@ -10,35 +10,53 @@ const corsHeaders = {
 const RATE_LIMIT_MAX_REQUESTS = 5;
 const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
 
+// Security: Input validation helpers
+const validateUUID = (id: string): boolean => {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return typeof id === 'string' && uuidRegex.test(id);
+};
+
+const validatePhoneNumber = (phone: string): boolean => {
+  // Only allow exactly 10 digits for Indian phone numbers
+  return typeof phone === 'string' && /^\d{10}$/.test(phone);
+};
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const requestId = crypto.randomUUID().slice(0, 8);
+  console.log(`[${requestId}] Number lookup request started`);
+
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { userId, phoneNumber } = await req.json();
+    const body = await req.json();
+    const { userId, phoneNumber } = body;
 
-    console.log(`Number lookup request - User: ${userId}, Phone: ${phoneNumber}`);
-
-    if (!userId || !phoneNumber) {
+    // Security: Validate userId format
+    if (!userId || !validateUUID(userId)) {
+      console.log(`[${requestId}] Invalid userId format`);
       return new Response(
-        JSON.stringify({ error: 'Missing userId or phoneNumber' }),
+        JSON.stringify({ error: 'Invalid request' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Validate phone number format
-    if (!/^\d{10}$/.test(phoneNumber)) {
+    // Security: Validate phone number format
+    if (!phoneNumber || !validatePhoneNumber(phoneNumber)) {
+      console.log(`[${requestId}] Invalid phone number format`);
       return new Response(
-        JSON.stringify({ error: 'Invalid phone number format' }),
+        JSON.stringify({ error: 'Invalid phone number format. Please enter exactly 10 digits.' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    console.log(`[${requestId}] User: ${userId.slice(0, 8)}..., Phone: ${phoneNumber.slice(0, 4)}****`);
 
     // Check if user exists and is not banned
     const { data: user, error: userError } = await supabase
@@ -48,7 +66,7 @@ serve(async (req) => {
       .single();
 
     if (userError || !user) {
-      console.error('User not found:', userError);
+      console.log(`[${requestId}] User not found`);
       return new Response(
         JSON.stringify({ error: 'User not found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -56,13 +74,15 @@ serve(async (req) => {
     }
 
     if (user.banned) {
+      console.log(`[${requestId}] Banned user attempted lookup`);
       return new Response(
-        JSON.stringify({ error: 'User is banned' }),
+        JSON.stringify({ error: 'Account is banned' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     if (user.credits < 1) {
+      console.log(`[${requestId}] Insufficient credits`);
       return new Response(
         JSON.stringify({ error: 'Insufficient credits' }),
         { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -84,6 +104,7 @@ serve(async (req) => {
       if (timeDiff < RATE_LIMIT_WINDOW_MS) {
         if (rateLimit.request_count >= RATE_LIMIT_MAX_REQUESTS) {
           const remainingTime = Math.ceil((RATE_LIMIT_WINDOW_MS - timeDiff) / 1000);
+          console.log(`[${requestId}] Rate limit exceeded, wait ${remainingTime}s`);
           return new Response(
             JSON.stringify({ 
               error: 'Rate limit exceeded', 
@@ -114,19 +135,19 @@ serve(async (req) => {
 
     // Call the number lookup API
     const apiUrl = `https://numberinfo.m2hgamerz.workers.dev/?num=${phoneNumber}&key=pro`;
-    console.log(`Calling Number API: ${apiUrl}`);
+    console.log(`[${requestId}] Calling external API`);
 
     const apiResponse = await fetch(apiUrl);
     const apiData = await apiResponse.json();
 
-    console.log('API Response:', JSON.stringify(apiData));
+    console.log(`[${requestId}] API response received, success: ${apiData.success}`);
 
     // Ensure result is an array
     const resultArray = Array.isArray(apiData.result) ? apiData.result : 
                         apiData.result ? [apiData.result] : [];
 
     if (!apiData.success || resultArray.length === 0) {
-      console.log('No data found for number - NOT deducting credits');
+      console.log(`[${requestId}] No data found - NOT deducting credits`);
       // Decrement the rate limit counter since no valid result was found
       if (rateLimit) {
         const windowStart = new Date(rateLimit.window_start);
@@ -153,10 +174,21 @@ serve(async (req) => {
     const results = resultArray;
     const primaryResult = results.find((r: any) => r.mobile === phoneNumber) || results[0];
 
-    // Format address - replace ! with spaces/commas
+    // Security: Sanitize output - format address safely
     const formatAddress = (addr: string | null) => {
-      if (!addr) return 'Not available';
-      return addr.replace(/!+/g, ', ').replace(/^,\s*|,\s*$/g, '').replace(/,\s*,/g, ',');
+      if (!addr || typeof addr !== 'string') return 'Not available';
+      // Remove potentially harmful characters and format
+      return addr
+        .replace(/[<>]/g, '')
+        .replace(/!+/g, ', ')
+        .replace(/^,\s*|,\s*$/g, '')
+        .replace(/,\s*,/g, ',')
+        .slice(0, 500); // Limit length
+    };
+
+    const sanitizeName = (name: string | null) => {
+      if (!name || typeof name !== 'string') return 'Not available';
+      return name.replace(/[<>]/g, '').slice(0, 200);
     };
 
     // Deduct credit
@@ -165,15 +197,15 @@ serve(async (req) => {
       .update({ credits: user.credits - 1 })
       .eq('id', userId);
 
-    // Save to search history
+    // Save to search history with sanitized data
     await supabase
       .from('search_history')
       .insert({
         user_id: userId,
         phone_number: phoneNumber,
-        name: primaryResult.name || null,
+        name: sanitizeName(primaryResult.name),
         address: formatAddress(primaryResult.address),
-        circle: primaryResult.circle || null,
+        circle: primaryResult.circle ? String(primaryResult.circle).slice(0, 100) : null,
       });
 
     // Update global stats
@@ -189,27 +221,29 @@ serve(async (req) => {
         .eq('id', stats.id);
     }
 
-    // Return all results for display
+    // Return all results for display with sanitized data
     const formattedResults = results.map((r: any) => ({
-      name: r.name || 'Not available',
-      mobile: r.mobile || phoneNumber,
-      fatherName: r.father_name || null,
+      name: sanitizeName(r.name),
+      mobile: String(r.mobile || phoneNumber).slice(0, 15),
+      fatherName: r.father_name ? sanitizeName(r.father_name) : null,
       address: formatAddress(r.address),
-      altMobile: r.alt_mobile || null,
-      circle: r.circle || 'Not available',
-      email: r.email || null,
+      altMobile: r.alt_mobile ? String(r.alt_mobile).slice(0, 15) : null,
+      circle: r.circle ? String(r.circle).slice(0, 100) : 'Not available',
+      email: r.email ? String(r.email).slice(0, 100) : null,
     }));
+
+    console.log(`[${requestId}] Lookup successful, ${formattedResults.length} results, credits: ${user.credits - 1}`);
 
     return new Response(
       JSON.stringify({
         success: true,
         resultCount: apiData.result_count || results.length,
-        data: formattedResults[0], // Primary result
-        allResults: formattedResults, // All results
+        data: formattedResults[0],
+        allResults: formattedResults,
         remainingCredits: user.credits - 1,
         meta: {
           processingTime: apiData.meta?.processing_time_ms,
-          timestamp: apiData.meta?.timestamp,
+          timestamp: new Date().toISOString(),
         }
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -217,9 +251,8 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error in number-lookup function:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
-      JSON.stringify({ error: errorMessage }),
+      JSON.stringify({ error: 'Lookup failed. Please try again.' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

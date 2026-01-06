@@ -4,23 +4,25 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Gift, Copy, Users, Loader2, Check } from "lucide-react";
+import { Gift, Copy, Users, Loader2, Check, AlertCircle } from "lucide-react";
 
 interface ReferralSectionProps {
   userId: string;
   username: string;
+  onCreditsAdded?: (credits: number) => void;
 }
 
 interface Referral {
   id: string;
   referral_code: string;
   referred_user_id: string | null;
+  referrer_user_id: string;
   bonus_credits_awarded: boolean;
   created_at: string;
   used_at: string | null;
 }
 
-export const ReferralSection = ({ userId, username }: ReferralSectionProps) => {
+export const ReferralSection = ({ userId, username, onCreditsAdded }: ReferralSectionProps) => {
   const [referralCode, setReferralCode] = useState<string | null>(null);
   const [referrals, setReferrals] = useState<Referral[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,6 +30,7 @@ export const ReferralSection = ({ userId, username }: ReferralSectionProps) => {
   const [copied, setCopied] = useState(false);
   const [applyCode, setApplyCode] = useState("");
   const [applying, setApplying] = useState(false);
+  const [hasUsedReferral, setHasUsedReferral] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -46,7 +49,7 @@ export const ReferralSection = ({ userId, username }: ReferralSectionProps) => {
       if (userError) throw userError;
       setReferralCode(userData?.referral_code || null);
 
-      // Get referrals made by this user
+      // Get referrals made by this user (where they are the referrer)
       const { data: referralsData, error: referralsError } = await supabase
         .from('referrals')
         .select('*')
@@ -55,6 +58,17 @@ export const ReferralSection = ({ userId, username }: ReferralSectionProps) => {
 
       if (referralsError) throw referralsError;
       setReferrals(referralsData || []);
+
+      // Check if user has already used a referral code (they are the referred user)
+      const { data: usedReferral, error: usedError } = await supabase
+        .from('referrals')
+        .select('id')
+        .eq('referred_user_id', userId)
+        .maybeSingle();
+
+      if (!usedError && usedReferral) {
+        setHasUsedReferral(true);
+      }
     } catch (error) {
       console.error("Error loading referral data:", error);
     } finally {
@@ -65,8 +79,28 @@ export const ReferralSection = ({ userId, username }: ReferralSectionProps) => {
   const generateReferralCode = async () => {
     setGenerating(true);
     try {
-      // Generate a unique code
-      const code = `${username.toUpperCase().slice(0, 4)}${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      // Sanitize username - only alphanumeric
+      const safeUsername = username.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 4) || 'USER';
+      const randomPart = Math.random().toString(36).substring(2, 8).toUpperCase();
+      const code = `${safeUsername}${randomPart}`;
+
+      // Check if code already exists
+      const { data: existingCode } = await supabase
+        .from('referrals')
+        .select('id')
+        .eq('referral_code', code)
+        .maybeSingle();
+
+      if (existingCode) {
+        // Generate a new code if this one exists
+        toast({
+          title: "Please try again",
+          description: "Code collision, generating a new one.",
+          variant: "destructive",
+        });
+        setGenerating(false);
+        return;
+      }
 
       const { error } = await supabase
         .from('users')
@@ -75,7 +109,7 @@ export const ReferralSection = ({ userId, username }: ReferralSectionProps) => {
 
       if (error) throw error;
 
-      // Create referral entry
+      // Create referral entry (this is the "template" for this code)
       const { error: refError } = await supabase
         .from('referrals')
         .insert({
@@ -124,7 +158,9 @@ export const ReferralSection = ({ userId, username }: ReferralSectionProps) => {
   };
 
   const applyReferralCode = async () => {
-    if (!applyCode.trim()) {
+    // Validate input
+    const trimmedCode = applyCode.trim();
+    if (!trimmedCode) {
       toast({
         title: "Invalid Code",
         description: "Please enter a referral code.",
@@ -133,13 +169,23 @@ export const ReferralSection = ({ userId, username }: ReferralSectionProps) => {
       return;
     }
 
-    // Sanitize input
-    const sanitizedCode = applyCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    // Sanitize input - only alphanumeric
+    const sanitizedCode = trimmedCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
     if (sanitizedCode.length < 6 || sanitizedCode.length > 20) {
       toast({
         title: "Invalid Code",
-        description: "Referral code must be 6-20 characters.",
+        description: "Referral code must be 6-20 alphanumeric characters.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check if user has already used a referral
+    if (hasUsedReferral) {
+      toast({
+        title: "Already Used",
+        description: "You have already used a referral code.",
         variant: "destructive",
       });
       return;
@@ -147,7 +193,7 @@ export const ReferralSection = ({ userId, username }: ReferralSectionProps) => {
 
     setApplying(true);
     try {
-      // Check if code exists and is not the user's own code
+      // Find the original referral entry for this code (where referred_user_id is null)
       const { data: referral, error: refError } = await supabase
         .from('referrals')
         .select('*')
@@ -158,15 +204,32 @@ export const ReferralSection = ({ userId, username }: ReferralSectionProps) => {
       if (refError) throw refError;
 
       if (!referral) {
-        toast({
-          title: "Invalid Code",
-          description: "This code is invalid or has already been used.",
-          variant: "destructive",
-        });
+        // Check if code exists but was already used
+        const { data: usedReferral } = await supabase
+          .from('referrals')
+          .select('id')
+          .eq('referral_code', sanitizedCode)
+          .not('referred_user_id', 'is', null)
+          .maybeSingle();
+
+        if (usedReferral) {
+          toast({
+            title: "Code Already Used",
+            description: "This referral code has already been used by someone else.",
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Invalid Code",
+            description: "This referral code does not exist.",
+            variant: "destructive",
+          });
+        }
         setApplying(false);
         return;
       }
 
+      // Check if user is trying to use their own code
       if (referral.referrer_user_id === userId) {
         toast({
           title: "Invalid Code",
@@ -177,53 +240,68 @@ export const ReferralSection = ({ userId, username }: ReferralSectionProps) => {
         return;
       }
 
+      // Double-check user hasn't already used a referral (race condition prevention)
+      const { data: existingUsage } = await supabase
+        .from('referrals')
+        .select('id')
+        .eq('referred_user_id', userId)
+        .maybeSingle();
+
+      if (existingUsage) {
+        toast({
+          title: "Already Used",
+          description: "You have already used a referral code.",
+          variant: "destructive",
+        });
+        setHasUsedReferral(true);
+        setApplying(false);
+        return;
+      }
+
+      const BONUS_CREDITS = 2;
+
       // Update referral with referred user
       const { error: updateError } = await supabase
         .from('referrals')
         .update({
           referred_user_id: userId,
           used_at: new Date().toISOString(),
+          bonus_credits_awarded: true,
         })
         .eq('id', referral.id);
 
       if (updateError) throw updateError;
 
-      // Add bonus credits to both users (2 credits each)
-      const BONUS_CREDITS = 2;
-
-      // Add to referrer
-      const { data: referrerData } = await supabase
+      // Add credits to referrer
+      const { data: referrerData, error: referrerError } = await supabase
         .from('users')
         .select('credits')
         .eq('id', referral.referrer_user_id)
         .single();
 
-      if (referrerData) {
+      if (!referrerError && referrerData) {
         await supabase
           .from('users')
           .update({ credits: referrerData.credits + BONUS_CREDITS })
           .eq('id', referral.referrer_user_id);
       }
 
-      // Add to referred user
-      const { data: referredData } = await supabase
+      // Add credits to referred user (current user)
+      const { data: currentUserData, error: currentUserError } = await supabase
         .from('users')
         .select('credits')
         .eq('id', userId)
         .single();
 
-      if (referredData) {
+      if (!currentUserError && currentUserData) {
+        const newCredits = currentUserData.credits + BONUS_CREDITS;
         await supabase
           .from('users')
-          .update({ credits: referredData.credits + BONUS_CREDITS })
+          .update({ credits: newCredits })
           .eq('id', userId);
+        
+        onCreditsAdded?.(BONUS_CREDITS);
       }
-
-      // Mark bonus as awarded
-      await supabase
-        .from('referrals')
-        .update({ bonus_credits_awarded: true })
-        .eq('id', referral.id);
 
       toast({
         title: "Referral Applied!",
@@ -231,11 +309,13 @@ export const ReferralSection = ({ userId, username }: ReferralSectionProps) => {
       });
 
       setApplyCode("");
+      setHasUsedReferral(true);
+      loadReferralData();
     } catch (error) {
       console.error("Error applying referral code:", error);
       toast({
         title: "Error",
-        description: "Failed to apply referral code",
+        description: "Failed to apply referral code. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -298,25 +378,38 @@ export const ReferralSection = ({ userId, username }: ReferralSectionProps) => {
         </div>
 
         {/* Apply Referral Code */}
-        <div className="space-y-3">
-          <h4 className="text-sm font-medium text-foreground">Have a referral code?</h4>
-          <div className="flex gap-2">
-            <Input
-              placeholder="Enter referral code"
-              value={applyCode}
-              onChange={(e) => setApplyCode(e.target.value.toUpperCase())}
-              className="font-mono tracking-wider uppercase"
-              maxLength={20}
-            />
-            <Button onClick={applyReferralCode} disabled={applying}>
-              {applying ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                "Apply"
-              )}
-            </Button>
+        {hasUsedReferral ? (
+          <div className="p-4 rounded-lg bg-muted/50 border border-border">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Check className="w-4 h-4 text-success" />
+              <span className="text-sm font-medium">You've already used a referral code</span>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="space-y-3">
+            <h4 className="text-sm font-medium text-foreground">Have a referral code?</h4>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Enter referral code"
+                value={applyCode}
+                onChange={(e) => setApplyCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                className="font-mono tracking-wider uppercase"
+                maxLength={20}
+              />
+              <Button onClick={applyReferralCode} disabled={applying}>
+                {applying ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  "Apply"
+                )}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground flex items-center gap-1">
+              <AlertCircle className="w-3 h-3" />
+              You can only use one referral code per account.
+            </p>
+          </div>
+        )}
 
         {/* Referral Stats */}
         {usedReferrals.length > 0 && (

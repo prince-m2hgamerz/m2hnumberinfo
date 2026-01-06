@@ -10,6 +10,7 @@ import { ProfileSettings } from "@/components/ProfileSettings";
 import { ReferralSection } from "@/components/ReferralSection";
 import { ExportHistory } from "@/components/ExportHistory";
 import { NotificationCenter } from "@/components/NotificationCenter";
+import { PaymentLoadingOverlay } from "@/components/PaymentLoadingOverlay";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -59,6 +60,7 @@ const Dashboard = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [buyingCredits, setBuyingCredits] = useState<number | null>(null);
+  const [paymentLoading, setPaymentLoading] = useState<{ credits: number; amount: number } | null>(null);
   const [creditPacks, setCreditPacks] = useState<CreditPack[]>([]);
   const [creditsAdded, setCreditsAdded] = useState<{ credits: number; newBalance: number } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -358,6 +360,7 @@ const Dashboard = () => {
     if (!userData || !authUser) return;
 
     setBuyingCredits(credits);
+    setPaymentLoading({ credits, amount: price });
 
     try {
       const { data, error } = await supabase.functions.invoke("create-order", {
@@ -397,6 +400,14 @@ const Dashboard = () => {
       });
     } finally {
       setBuyingCredits(null);
+      setPaymentLoading(null);
+    }
+  };
+
+  const handleReferralCredits = (bonusCredits: number) => {
+    if (userData) {
+      setUserData({ ...userData, credits: userData.credits + bonusCredits });
+      addNotification('credit_add', 'Referral Bonus', `+${bonusCredits} credits from referral!`);
     }
   };
 
@@ -417,6 +428,15 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen bg-background relative">
       <div className="fixed inset-0 bg-grid opacity-40 pointer-events-none" />
+      
+      {/* Payment Loading Overlay */}
+      {paymentLoading && (
+        <PaymentLoadingOverlay 
+          isOpen={!!paymentLoading} 
+          credits={paymentLoading.credits} 
+          amount={paymentLoading.amount} 
+        />
+      )}
       
       {/* Notification Center - Fixed position */}
       <div className="fixed top-3 right-20 sm:right-24 z-50">
@@ -496,7 +516,7 @@ const Dashboard = () => {
               onNotification={(type, title, message) => addNotification(type, title, message)}
             />
           </div>
-          <ReferralSection userId={userData.id} username={displayName} />
+          <ReferralSection userId={userData.id} username={displayName} onCreditsAdded={handleReferralCredits} />
 
           {/* Buy Credits Section */}
           <Card className="animate-fade-in">
