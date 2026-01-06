@@ -9,11 +9,13 @@ import {
   Phone,
   MapPin,
   Radio,
+  Clock,
   Users,
   Mail,
   CreditCard,
   Timer,
   CalendarClock,
+  Fingerprint,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -43,8 +45,10 @@ interface NumberResult {
 }
 
 interface AadhaarResult {
-  name: string;
-  aadhar_number: string;
+  full_name?: string;
+  name?: string;
+  aadhar_number?: string;
+  aadhaar_number?: string;
 }
 
 interface LookupMeta {
@@ -109,38 +113,35 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
   const [meta, setMeta] = useState<LookupMeta | null>(null);
   const [resultCount, setResultCount] = useState(0);
 
+  const [rateLimitError, setRateLimitError] = useState<{
+    message: string;
+    remainingTime: number;
+  } | null>(null);
+
   const { toast } = useToast();
 
-  /* ===============================
-     SAFE CREDIT UPDATE (🔥 FIX)
-  ================================ */
-
-  const updateCreditsSafely = (data: unknown) => {
-    if (
-      data &&
-      typeof data === "object" &&
-      "remainingCredits" in data &&
-      typeof (data as { remainingCredits: unknown }).remainingCredits === "number"
-    ) {
-      onLookup((data as { remainingCredits: number }).remainingCredits);
-    }
+  // Clear results when switching modes to prevent UI bugs
+  const handleModeChange = (newMode: LookupMode) => {
+    setMode(newMode);
+    setResults([]);
+    setAadhaarResults([]);
+    setResultCount(0);
+    setMeta(null);
   };
 
+  useEffect(() => {
+    if (!rateLimitError) return;
+    const t = setInterval(() => {
+      setRateLimitError((p) => (p && p.remainingTime > 1 ? { ...p, remainingTime: p.remainingTime - 1 } : null));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [rateLimitError]);
+
   /* ===============================
-     LOOKUP
+     LOOKUP LOGIC
   ================================ */
 
   const handleLookup = async () => {
-    // 🔐 HARD STOP AT 0 CREDITS
-    if (credits <= 0) {
-      toast({
-        title: "Insufficient Credits",
-        description: "Please purchase credits to continue.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     if (!/^\d{10}$/.test(number)) {
       toast({
         title: "Invalid Number",
@@ -150,11 +151,21 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
       return;
     }
 
+    if (credits < 1) {
+      toast({
+        title: "Insufficient Credits",
+        description: "Please purchase credits.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
+    // Reset state before new fetch
     setResults([]);
     setAadhaarResults([]);
-    setMeta(null);
     setResultCount(0);
+    setMeta(null);
 
     try {
       /* ===== NUMBER LOOKUP ===== */
@@ -165,67 +176,66 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
 
         if (error) throw error;
 
-        // 🔒 UPDATE CREDITS ONLY FROM BACKEND
-        updateCreditsSafely(data);
+        const raw = extractResults(data);
+        const normalized = raw.map(normalizeNumberResult);
+        const validResults = normalized.filter(hasValidNumberData);
 
         if (data && typeof data === "object" && "meta" in data) {
           setMeta((data as { meta?: LookupMeta }).meta ?? null);
         }
 
-        const raw = extractResults(data);
-        const normalized = raw.map(normalizeNumberResult);
-        const validResults = normalized.filter(hasValidNumberData);
-
         if (!validResults.length) {
-          toast({
-            title: "No Records Found",
-            description: "No valid data found.",
-          });
-          return;
+          toast({ title: "No Records Found", description: "No valid data found." });
+        } else {
+          setResults(validResults);
+          setResultCount(validResults.length);
+          onLookup((data as { remainingCredits?: number })?.remainingCredits ?? credits - 1);
+          onHistoryUpdate();
+          toast({ title: "Lookup Successful", description: `Found ${validResults.length} result(s).` });
         }
-
-        setResults(validResults);
-        setResultCount(validResults.length);
-        onHistoryUpdate();
-
-        toast({
-          title: "Lookup Successful",
-          description: `Found ${validResults.length} result(s).`,
-        });
       }
 
       /* ===== AADHAAR LOOKUP ===== */
       if (mode === "aadhaar") {
         const res = await fetch(`https://aadharinfo.m2hgamerz.workers.dev/?num=${number}`);
-        const json = (await res.json()) as {
-          success: boolean;
-          records?: AadhaarResult[];
-        };
+        const json = await res.json();
 
-        if (!json.success || !json.records?.length) {
+        // Check for multiple possible data locations in the API response
+        const records = json.records || json.data || (Array.isArray(json) ? json : null);
+
+        if (!json.success && !records) {
           toast({
             title: "No Aadhaar Data",
-            description: "No Aadhaar records found.",
+            description: "No records found for this number.",
+            variant: "destructive",
           });
           return;
         }
 
-        // ⚠️ Aadhaar credits should ONLY be deducted by backend
-        // If backend does NOT deduct → DO NOT touch credits here
+        const finalRecords = Array.isArray(records) ? records : records ? [records] : [];
 
-        setAadhaarResults(json.records);
-        setResultCount(json.records.length);
+        if (finalRecords.length === 0) {
+          toast({ title: "No Records Found", description: "No Aadhaar data linked to this number." });
+          return;
+        }
+
+        setAadhaarResults(finalRecords);
+        setResultCount(finalRecords.length);
+
+        // Deduction logic for Aadhaar
+        onLookup(credits - 1);
         onHistoryUpdate();
 
         toast({
           title: "Aadhaar Lookup Successful",
+          description: "1 credit deducted.",
         });
       }
     } catch (err) {
-      console.error(err);
+      console.error("Lookup Error:", err);
       toast({
         title: "Lookup Failed",
-        description: "An unexpected error occurred.",
+        description: "Server communication error. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -233,105 +243,143 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
     }
   };
 
-  /* ===============================
-     UI
-  ================================ */
-
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex gap-2 items-center">
-          <Search className="w-4 h-4" />
-          Lookup
+    <Card className="overflow-hidden">
+      <CardHeader className="border-b bg-muted/30">
+        <CardTitle className="flex gap-2 items-center text-lg">
+          <Search className="w-5 h-5 text-primary" />
+          Information Search
         </CardTitle>
       </CardHeader>
 
-      <CardContent className="space-y-4">
-        {/* MODE */}
-        <div className="flex gap-2">
-          <Button size="sm" variant={mode === "number" ? "default" : "outline"} onClick={() => setMode("number")}>
-            📞 Number
+      <CardContent className="p-6 space-y-6">
+        {/* MODE TOGGLE */}
+        <div className="flex p-1 bg-muted rounded-lg w-fit">
+          <Button
+            size="sm"
+            variant={mode === "number" ? "secondary" : "ghost"}
+            className={mode === "number" ? "shadow-sm" : ""}
+            onClick={() => handleModeChange("number")}
+          >
+            <Phone className="w-4 h-4 mr-2" /> Number
           </Button>
-          <Button size="sm" variant={mode === "aadhaar" ? "default" : "outline"} onClick={() => setMode("aadhaar")}>
-            🆔 Aadhaar
+          <Button
+            size="sm"
+            variant={mode === "aadhaar" ? "secondary" : "ghost"}
+            className={mode === "aadhaar" ? "shadow-sm" : ""}
+            onClick={() => handleModeChange("aadhaar")}
+          >
+            <Fingerprint className="w-4 h-4 mr-2" /> Aadhaar
           </Button>
         </div>
 
-        {/* INPUT */}
+        {/* INPUT BOX */}
         <div className="flex gap-2">
-          <Input
-            value={number}
-            onChange={(e) => setNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
-            placeholder="Enter 10-digit number"
-            className="font-mono"
-          />
-          <Button onClick={handleLookup} disabled={loading || credits <= 0}>
+          <div className="relative flex-1">
+            <Input
+              value={number}
+              onChange={(e) => setNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
+              placeholder={mode === "number" ? "Enter mobile number..." : "Enter linked mobile..."}
+              className="font-mono pl-4 h-11"
+              onKeyDown={(e) => e.key === "Enter" && handleLookup()}
+            />
+          </div>
+          <Button onClick={handleLookup} disabled={loading || number.length !== 10} className="h-11 px-6">
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
           </Button>
         </div>
 
-        {/* RESULTS */}
-        {!loading && results.length > 0 && (
-          <div className="pt-4 border-t">
-            <p className="text-sm flex items-center gap-2">
-              <Users className="w-4 h-4" />
-              Found {resultCount} result(s) • Swipe
-            </p>
+        {/* RESULTS AREA */}
+        {!loading && resultCount > 0 && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
+                <Users className="w-4 h-4" />
+                Found {resultCount} record(s)
+              </p>
+            </div>
 
-            <div className="overflow-x-auto mt-3">
-              <div className="flex gap-3 w-max">
-                {results.map((r, i) => (
-                  <div key={i} className="w-[360px] p-4 rounded-xl border bg-secondary/30">
-                    <p className="font-medium flex gap-2 items-center">
-                      <User className="w-4 h-4" />
-                      {r.name}
-                    </p>
+            <div className="overflow-x-auto pb-2">
+              <div className="flex gap-4 w-max">
+                {/* Render Number Search Results */}
+                {mode === "number" &&
+                  results.map((r, i) => (
+                    <div key={i} className="w-[320px] p-5 rounded-xl border bg-card shadow-sm space-y-3">
+                      <div>
+                        <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
+                          Subscriber
+                        </p>
+                        <p className="font-bold text-base flex gap-2 items-center">
+                          <User className="w-4 h-4 text-primary" /> {r.name}
+                        </p>
+                      </div>
 
-                    <p className="text-sm flex gap-1 items-center">
-                      <Phone className="w-3 h-3" />
-                      {r.mobile}
-                    </p>
-
-                    {r.fatherName && <p className="text-xs">👤 Father: {r.fatherName}</p>}
-
-                    <p className="text-xs flex items-center gap-1">
-                      <Radio className="w-3 h-3" />
-                      {r.circle}
-                    </p>
-
-                    {r.altMobile && <p className="text-xs">🔁 Alt: {r.altMobile}</p>}
-
-                    {r.email && (
-                      <p className="text-xs flex items-center gap-1">
-                        <Mail className="w-3 h-3" />
-                        {r.email}
-                      </p>
-                    )}
-
-                    <p className="text-xs mt-1">
-                      <MapPin className="inline w-3 h-3 mr-1" />
-                      {r.address}
-                    </p>
-
-                    {/* METADATA */}
-                    {meta && (
-                      <div className="mt-3 pt-2 border-t text-xs text-muted-foreground space-y-1">
-                        {meta.processingTime !== undefined && (
-                          <p className="flex items-center gap-1">
-                            <Timer className="w-3 h-3" />
-                            Processing: {meta.processingTime} ms
-                          </p>
+                      <div className="grid grid-cols-1 gap-2 text-sm">
+                        <div className="flex items-center gap-2">
+                          <Phone className="w-3.5 h-3.5 text-muted-foreground" />
+                          <span className="font-mono">{r.mobile}</span>
+                        </div>
+                        {r.fatherName && (
+                          <div className="text-muted-foreground">
+                            <span className="font-medium text-foreground">Father:</span> {r.fatherName}
+                          </div>
                         )}
-                        {meta.timestamp && (
-                          <p className="flex items-center gap-1">
-                            <CalendarClock className="w-3 h-3" />
-                            {new Date(meta.timestamp).toLocaleString()}
-                          </p>
+                        <div className="flex items-center gap-2">
+                          <Radio className="w-3.5 h-3.5 text-muted-foreground" />
+                          {r.circle}
+                        </div>
+                        {r.email && (
+                          <div className="flex items-center gap-2 truncate">
+                            <Mail className="w-3.5 h-3.5 text-muted-foreground" />
+                            {r.email}
+                          </div>
                         )}
                       </div>
-                    )}
-                  </div>
-                ))}
+
+                      <div className="pt-2 border-t">
+                        <p className="text-[11px] leading-relaxed text-muted-foreground">
+                          <MapPin className="inline w-3 h-3 mr-1 mb-0.5" />
+                          {r.address}
+                        </p>
+                      </div>
+
+                      {meta && (
+                        <div className="pt-2 border-t flex justify-between text-[10px] text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Timer className="w-3 h-3" /> {meta.processingTime}ms
+                          </span>
+                          <span>{new Date().toLocaleTimeString()}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                {/* Render Aadhaar Search Results */}
+                {mode === "aadhaar" &&
+                  aadhaarResults.map((a, i) => (
+                    <div key={i} className="w-[320px] p-5 rounded-xl border border-primary/20 bg-primary/5 shadow-sm">
+                      <div className="flex justify-between items-start mb-4">
+                        <CreditCard className="w-8 h-8 text-primary/60" />
+                        <div className="bg-primary/10 text-primary text-[10px] px-2 py-1 rounded font-bold uppercase">
+                          Identity Record
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase font-bold">Full Name</p>
+                          <p className="font-bold text-lg">{a.name || a.full_name || "N/A"}</p>
+                        </div>
+
+                        <div className="bg-background/50 p-3 rounded-lg border border-dashed">
+                          <p className="text-[10px] text-muted-foreground uppercase font-bold mb-1">Aadhaar Number</p>
+                          <p className="font-mono text-lg tracking-widest text-primary">
+                            {a.aadhar_number || a.aadhaar_number || "•••• •••• ••••"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
               </div>
             </div>
           </div>
