@@ -9,7 +9,6 @@ import {
   Phone,
   MapPin,
   Radio,
-  Clock,
   Users,
   Mail,
   CreditCard,
@@ -93,7 +92,6 @@ const extractResults = (data: unknown): RawNumberResult[] => {
 const hasValidNumberData = (r: NumberResult): boolean => {
   const invalid = ["not available", "n/a", ""];
   const bad = (v?: string | null) => !v || invalid.includes(v.toLowerCase());
-
   return !(bad(r.name) && bad(r.address) && bad(r.circle));
 };
 
@@ -111,39 +109,42 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
   const [meta, setMeta] = useState<LookupMeta | null>(null);
   const [resultCount, setResultCount] = useState(0);
 
-  const [rateLimitError, setRateLimitError] = useState<{
-    message: string;
-    remainingTime: number;
-  } | null>(null);
-
   const { toast } = useToast();
 
-  useEffect(() => {
-    if (!rateLimitError) return;
-    const t = setInterval(() => {
-      setRateLimitError((p) => (p && p.remainingTime > 1 ? { ...p, remainingTime: p.remainingTime - 1 } : null));
-    }, 1000);
-    return () => clearInterval(t);
-  }, [rateLimitError]);
+  /* ===============================
+     SAFE CREDIT UPDATE (🔥 FIX)
+  ================================ */
+
+  const updateCreditsSafely = (data: unknown) => {
+    if (
+      data &&
+      typeof data === "object" &&
+      "remainingCredits" in data &&
+      typeof (data as { remainingCredits: unknown }).remainingCredits === "number"
+    ) {
+      onLookup((data as { remainingCredits: number }).remainingCredits);
+    }
+  };
 
   /* ===============================
      LOOKUP
   ================================ */
 
   const handleLookup = async () => {
-    if (!/^\d{10}$/.test(number)) {
+    // 🔐 HARD STOP AT 0 CREDITS
+    if (credits <= 0) {
       toast({
-        title: "Invalid Number",
-        description: "Enter a valid 10-digit mobile number.",
+        title: "Insufficient Credits",
+        description: "Please purchase credits to continue.",
         variant: "destructive",
       });
       return;
     }
 
-    if (credits < 1) {
+    if (!/^\d{10}$/.test(number)) {
       toast({
-        title: "Insufficient Credits",
-        description: "Please purchase credits.",
+        title: "Invalid Number",
+        description: "Enter a valid 10-digit mobile number.",
         variant: "destructive",
       });
       return;
@@ -154,7 +155,6 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
     setAadhaarResults([]);
     setMeta(null);
     setResultCount(0);
-    setRateLimitError(null);
 
     try {
       /* ===== NUMBER LOOKUP ===== */
@@ -164,6 +164,9 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
         });
 
         if (error) throw error;
+
+        // 🔒 UPDATE CREDITS ONLY FROM BACKEND
+        updateCreditsSafely(data);
 
         if (data && typeof data === "object" && "meta" in data) {
           setMeta((data as { meta?: LookupMeta }).meta ?? null);
@@ -176,15 +179,13 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
         if (!validResults.length) {
           toast({
             title: "No Records Found",
-            description: "No valid data found. Credits were not deducted.",
+            description: "No valid data found.",
           });
           return;
         }
 
         setResults(validResults);
         setResultCount(validResults.length);
-
-        onLookup((data as { remainingCredits?: number })?.remainingCredits ?? credits - 1);
         onHistoryUpdate();
 
         toast({
@@ -201,7 +202,7 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
           records?: AadhaarResult[];
         };
 
-        if (!json.success || !Array.isArray(json.records) || !json.records.length) {
+        if (!json.success || !json.records?.length) {
           toast({
             title: "No Aadhaar Data",
             description: "No Aadhaar records found.",
@@ -209,15 +210,15 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
           return;
         }
 
+        // ⚠️ Aadhaar credits should ONLY be deducted by backend
+        // If backend does NOT deduct → DO NOT touch credits here
+
         setAadhaarResults(json.records);
         setResultCount(json.records.length);
-
-        onLookup(credits - 1);
         onHistoryUpdate();
 
         toast({
           title: "Aadhaar Lookup Successful",
-          description: "1 credit deducted.",
         });
       }
     } catch (err) {
@@ -264,13 +265,13 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
             placeholder="Enter 10-digit number"
             className="font-mono"
           />
-          <Button onClick={handleLookup} disabled={loading}>
+          <Button onClick={handleLookup} disabled={loading || credits <= 0}>
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
           </Button>
         </div>
 
         {/* RESULTS */}
-        {!loading && (results.length > 0 || aadhaarResults.length > 0) && (
+        {!loading && results.length > 0 && (
           <div className="pt-4 border-t">
             <p className="text-sm flex items-center gap-2">
               <Users className="w-4 h-4" />
@@ -299,6 +300,7 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
                     </p>
 
                     {r.altMobile && <p className="text-xs">🔁 Alt: {r.altMobile}</p>}
+
                     {r.email && (
                       <p className="text-xs flex items-center gap-1">
                         <Mail className="w-3 h-3" />
@@ -328,16 +330,6 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
                         )}
                       </div>
                     )}
-                  </div>
-                ))}
-
-                {aadhaarResults.map((a, i) => (
-                  <div key={i} className="w-[360px] p-4 rounded-xl border bg-secondary/30">
-                    <p className="font-medium flex gap-2 items-center">
-                      <CreditCard className="w-4 h-4" />
-                      {a.name}
-                    </p>
-                    <p className="font-mono text-sm">Aadhaar: {a.aadhar_number}</p>
                   </div>
                 ))}
               </div>
