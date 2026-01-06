@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { ArrowLeft, Phone, Mail, MessageSquare, Send, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
+import { supabase } from "@/integrations/supabase/client";
 
 // Validation schema
 const contactSchema = z.object({
@@ -72,12 +73,23 @@ const ContactUs = () => {
 
     setIsSubmitting(true);
     
-    // Simulate form submission (in production, this would be an API call)
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Save to database
+      const { error } = await supabase
+        .from('contact_submissions')
+        .insert({
+          name: result.data.name,
+          email: result.data.email,
+          subject: result.data.subject,
+          message: result.data.message
+        });
+
+      if (error) throw error;
+
       setIsSubmitted(true);
       toast.success("Message sent successfully!");
-    } catch {
+    } catch (error) {
+      console.error("Error submitting contact form:", error);
       toast.error("Failed to send message. Please try again.");
     } finally {
       setIsSubmitting(false);
