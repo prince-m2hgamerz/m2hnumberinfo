@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.check-expired-orders]
 verify_jwt = false
+
+[functions.apply-referral]
+verify_jwt = false
