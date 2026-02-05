@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+ import { useRateLimit } from "@/hooks/useRateLimit";
+ import { sanitizePhoneNumber, validatePhoneNumber, sanitizeText } from "@/lib/security";
 
 /* ===============================
    TYPES
@@ -119,6 +121,13 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
   } | null>(null);
 
   const { toast } = useToast();
+ 
+   // Client-side rate limiting: 10 lookups per minute
+   const { checkLimit, isLimited, remainingTime: clientRemainingTime } = useRateLimit({
+     key: `lookup_${userId}`,
+     maxRequests: 10,
+     windowMs: 60000,
+   });
 
   // Clear results when switching modes to prevent UI bugs
   const handleModeChange = (newMode: LookupMode) => {
@@ -142,7 +151,14 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
   ================================ */
 
   const handleLookup = async () => {
-    if (!/^\d{10}$/.test(number)) {
+     // Client-side rate limit check
+     if (!checkLimit()) {
+       return;
+     }
+ 
+     // Sanitize and validate the phone number
+     const sanitizedNumber = sanitizePhoneNumber(number);
+     if (!validatePhoneNumber(sanitizedNumber)) {
       toast({
         title: "Invalid Number",
         description: "Enter a valid 10-digit mobile number.",
@@ -171,7 +187,7 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
       /* ===== NUMBER LOOKUP ===== */
       if (mode === "number") {
         const { data, error } = await supabase.functions.invoke("number-lookup", {
-          body: { userId, phoneNumber: number },
+           body: { userId, phoneNumber: sanitizedNumber },
         });
 
         if (error) throw error;
@@ -205,7 +221,7 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
       /* ===== AADHAAR LOOKUP ===== */
       if (mode === "aadhaar") {
         const { data, error } = await supabase.functions.invoke("aadhaar-lookup", {
-          body: { userId, phoneNumber: number },
+           body: { userId, phoneNumber: sanitizedNumber },
         });
 
         if (error) throw error;
@@ -288,12 +304,21 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
               placeholder={mode === "number" ? "Enter mobile number..." : "Enter linked mobile..."}
               className="font-mono pl-4 h-11"
               onKeyDown={(e) => e.key === "Enter" && handleLookup()}
+             disabled={isLimited}
             />
           </div>
-          <Button onClick={handleLookup} disabled={loading || number.length !== 10} className="h-11 px-6">
+         <Button onClick={handleLookup} disabled={loading || number.length !== 10 || isLimited} className="h-11 px-6">
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
           </Button>
         </div>
+ 
+       {/* Rate limit warning */}
+       {isLimited && (
+         <div className="text-sm text-destructive flex items-center gap-2">
+           <Clock className="w-4 h-4" />
+           Rate limited. Please wait {clientRemainingTime} seconds.
+         </div>
+       )}
 
         {/* RESULTS AREA */}
         {!loading && resultCount > 0 && (
