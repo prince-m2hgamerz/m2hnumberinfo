@@ -156,6 +156,18 @@
        .update({ credits: user.credits - 1 })
        .eq('id', userId);
  
+    // Save to search history
+    const primaryRecord = finalRecords[0] || {};
+    await supabase
+      .from('search_history')
+      .insert({
+        user_id: userId,
+        phone_number: phoneNumber,
+        name: primaryRecord.name || primaryRecord.full_name || 'Aadhaar Lookup',
+        address: `Aadhaar: ${primaryRecord.aadhar_number || primaryRecord.aadhaar_number || 'N/A'}`,
+        circle: 'Aadhaar',
+      });
+
      // Update global stats
      const { data: stats } = await supabase
        .from('stats')

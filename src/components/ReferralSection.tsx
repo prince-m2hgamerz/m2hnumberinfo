@@ -204,38 +204,106 @@ export const ReferralSection = ({ userId, username, onCreditsAdded }: ReferralSe
       if (refError) throw refError;
 
       if (!referral) {
-        // Check if code exists but was already used
-        const { data: usedReferral } = await supabase
-          .from('referrals')
-          .select('id')
+        // Check if code exists in users table (the original code owner)
+        const { data: codeOwner } = await supabase
+          .from('users')
+          .select('id, referral_code')
           .eq('referral_code', sanitizedCode)
-          .not('referred_user_id', 'is', null)
           .maybeSingle();
 
-        if (usedReferral) {
-          toast({
-            title: "Code Already Used",
-            description: "This referral code has already been used by someone else.",
-            variant: "destructive",
-          });
-        } else {
+        if (!codeOwner) {
           toast({
             title: "Invalid Code",
             description: "This referral code does not exist.",
             variant: "destructive",
           });
+          setApplying(false);
+          return;
         }
-        setApplying(false);
-        return;
-      }
 
-      // Check if user is trying to use their own code
-      if (referral.referrer_user_id === userId) {
+        // Check if user is trying to use their own code
+        if (codeOwner.id === userId) {
+          toast({
+            title: "Invalid Code",
+            description: "You cannot use your own referral code.",
+            variant: "destructive",
+          });
+          setApplying(false);
+          return;
+        }
+
+        // Check if this user already used THIS specific code
+        const { data: alreadyUsedThisCode } = await supabase
+          .from('referrals')
+          .select('id')
+          .eq('referral_code', sanitizedCode)
+          .eq('referred_user_id', userId)
+          .maybeSingle();
+
+        if (alreadyUsedThisCode) {
+          toast({
+            title: "Already Applied",
+            description: "You have already used this referral code.",
+            variant: "destructive",
+          });
+          setApplying(false);
+          return;
+        }
+
+        // Create a new referral entry for this usage
+        const { error: insertError } = await supabase
+          .from('referrals')
+          .insert({
+            referrer_user_id: codeOwner.id,
+            referral_code: sanitizedCode,
+            referred_user_id: userId,
+            used_at: new Date().toISOString(),
+            bonus_credits_awarded: true,
+          });
+
+        if (insertError) throw insertError;
+
+        const BONUS_CREDITS = 2;
+
+        // Add credits to referrer
+        const { data: referrerData, error: referrerError } = await supabase
+          .from('users')
+          .select('credits')
+          .eq('id', codeOwner.id)
+          .single();
+
+        if (!referrerError && referrerData) {
+          await supabase
+            .from('users')
+            .update({ credits: referrerData.credits + BONUS_CREDITS })
+            .eq('id', codeOwner.id);
+        }
+
+        // Add credits to referred user (current user)
+        const { data: currentUserData, error: currentUserError } = await supabase
+          .from('users')
+          .select('credits')
+          .eq('id', userId)
+          .single();
+
+        if (!currentUserError && currentUserData) {
+          const newCredits = currentUserData.credits + BONUS_CREDITS;
+          await supabase
+            .from('users')
+            .update({ credits: newCredits })
+            .eq('id', userId);
+
+          onCreditsAdded?.(BONUS_CREDITS);
+        }
+
         toast({
-          title: "Invalid Code",
-          description: "You cannot use your own referral code.",
-          variant: "destructive",
+          title: "Referral Applied!",
+          description: `You received ${BONUS_CREDITS} bonus credits!`,
         });
+
+        setApplyCode("");
+        setHasUsedReferral(true);
+        loadReferralData();
         setApplying(false);
         return;
       }
@@ -260,17 +328,29 @@ export const ReferralSection = ({ userId, username, onCreditsAdded }: ReferralSe
 
       const BONUS_CREDITS = 2;
 
-      // Update referral with referred user
-      const { error: updateError } = await supabase
+      // Check if user is trying to use their own code
+      if (referral.referrer_user_id === userId) {
+        toast({
+          title: "Invalid Code",
+          description: "You cannot use your own referral code.",
+          variant: "destructive",
+        });
+        setApplying(false);
+        return;
+      }
+
+      // Create a new referral entry for this usage (keep original template intact)
+      const { error: insertError } = await supabase
         .from('referrals')
-        .update({
+        .insert({
+          referrer_user_id: referral.referrer_user_id,
+          referral_code: sanitizedCode,
           referred_user_id: userId,
           used_at: new Date().toISOString(),
           bonus_credits_awarded: true,
-        })
-        .eq('id', referral.id);
+        });
 
-      if (updateError) throw updateError;
+      if (insertError) throw insertError;
 
       // Add credits to referrer
       const { data: referrerData, error: referrerError } = await supabase
