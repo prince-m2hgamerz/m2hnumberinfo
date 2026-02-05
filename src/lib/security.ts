@@ -191,27 +191,10 @@
  
  /**
   * Add security-related meta tags to document head
-  * Note: Real security headers should be set server-side
+  * Note: X-Frame-Options and CSP frame-ancestors MUST be set via HTTP headers, not meta tags
+  * Only referrer policy can be set via meta tag
   */
  export const addSecurityMetaTags = (): void => {
-   // Content Security Policy (basic)
-   const existingCSP = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
-   if (!existingCSP) {
-     const csp = document.createElement("meta");
-     csp.httpEquiv = "Content-Security-Policy";
-     csp.content = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self' https: wss:; frame-ancestors 'self';";
-     document.head.appendChild(csp);
-   }
- 
-   // X-Content-Type-Options
-   const existingXCTO = document.querySelector('meta[http-equiv="X-Content-Type-Options"]');
-   if (!existingXCTO) {
-     const xcto = document.createElement("meta");
-     xcto.httpEquiv = "X-Content-Type-Options";
-     xcto.content = "nosniff";
-     document.head.appendChild(xcto);
-   }
- 
    // Referrer Policy
    const existingRP = document.querySelector('meta[name="referrer"]');
    if (!existingRP) {
