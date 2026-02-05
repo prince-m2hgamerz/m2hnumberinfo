@@ -174,23 +174,9 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
           body: { userId, phoneNumber: number },
         });
 
-        // Handle both error responses and no-data responses
-        if (error) {
-          // Check if the error response contains noDeduction flag (404 with no data)
-          const errorData = error as unknown as { context?: { body?: string } };
-          try {
-            const parsed = errorData?.context?.body ? JSON.parse(errorData.context.body) : null;
-            if (parsed?.noDeduction) {
-              toast({ title: "No Records Found", description: parsed.error || "No valid data found for this number." });
-              return;
-            }
-          } catch {
-            // Not a JSON response, throw original error
-          }
-          throw error;
-        }
+        if (error) throw error;
 
-        // Also check if data indicates no results
+        // Check if data indicates no results (success: false means no valid data)
         if (data?.noDeduction || data?.success === false) {
           toast({ title: "No Records Found", description: data.error || "No valid data found for this number." });
           return;
