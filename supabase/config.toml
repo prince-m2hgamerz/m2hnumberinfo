@@ -1,5 +1,8 @@
 project_id = "fjyztcfzntlbqgqjefel"
 
+ [functions.aadhaar-lookup]
+ verify_jwt = false
+ 
 [functions.number-lookup]
 verify_jwt = false
 
