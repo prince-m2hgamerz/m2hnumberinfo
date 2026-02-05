@@ -174,25 +174,46 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
           body: { userId, phoneNumber: number },
         });
 
-        if (error) throw error;
+        // Handle both error responses and no-data responses
+        if (error) {
+          // Check if the error response contains noDeduction flag (404 with no data)
+          const errorData = error as unknown as { context?: { body?: string } };
+          try {
+            const parsed = errorData?.context?.body ? JSON.parse(errorData.context.body) : null;
+            if (parsed?.noDeduction) {
+              toast({ title: "No Records Found", description: parsed.error || "No valid data found for this number." });
+              return;
+            }
+          } catch {
+            // Not a JSON response, throw original error
+          }
+          throw error;
+        }
+
+        // Also check if data indicates no results
+        if (data?.noDeduction || data?.success === false) {
+          toast({ title: "No Records Found", description: data.error || "No valid data found for this number." });
+          return;
+        }
 
         const raw = extractResults(data);
         const normalized = raw.map(normalizeNumberResult);
         const validResults = normalized.filter(hasValidNumberData);
 
+        if (!validResults.length) {
+          toast({ title: "No Records Found", description: "No valid data found." });
+          return;
+        }
+
         if (data && typeof data === "object" && "meta" in data) {
           setMeta((data as { meta?: LookupMeta }).meta ?? null);
         }
 
-        if (!validResults.length) {
-          toast({ title: "No Records Found", description: "No valid data found." });
-        } else {
-          setResults(validResults);
-          setResultCount(validResults.length);
-          onLookup((data as { remainingCredits?: number })?.remainingCredits ?? credits - 1);
-          onHistoryUpdate();
-          toast({ title: "Lookup Successful", description: `Found ${validResults.length} result(s).` });
-        }
+        setResults(validResults);
+        setResultCount(validResults.length);
+        onLookup((data as { remainingCredits?: number })?.remainingCredits ?? credits - 1);
+        onHistoryUpdate();
+        toast({ title: "Lookup Successful", description: `Found ${validResults.length} result(s).` });
       }
 
       /* ===== AADHAAR LOOKUP ===== */
