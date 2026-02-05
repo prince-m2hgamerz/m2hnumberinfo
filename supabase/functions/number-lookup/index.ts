@@ -146,7 +146,21 @@ serve(async (req) => {
     const resultArray = Array.isArray(apiData.result) ? apiData.result : 
                         apiData.result ? [apiData.result] : [];
 
-    if (!apiData.success || resultArray.length === 0) {
+    // Check if we have valid results with actual data (not just "Not available")
+    const hasValidData = (result: any): boolean => {
+      if (!result) return false;
+      const name = result.name?.toLowerCase?.() || '';
+      const address = result.address?.toLowerCase?.() || '';
+      // Check if name and address are meaningful (not empty/not available)
+      const invalidValues = ['not available', 'n/a', 'na', 'null', 'undefined', ''];
+      const isNameValid = name && !invalidValues.includes(name.trim());
+      const isAddressValid = address && !invalidValues.includes(address.trim());
+      return isNameValid || isAddressValid;
+    };
+
+    const validResults = resultArray.filter(hasValidData);
+
+    if (!apiData.success || resultArray.length === 0 || validResults.length === 0) {
       console.log(`[${requestId}] No data found - NOT deducting credits`);
       // Decrement the rate limit counter since no valid result was found
       if (rateLimit) {
@@ -161,7 +175,7 @@ serve(async (req) => {
       }
       return new Response(
         JSON.stringify({ 
-          error: 'No data found for this number',
+          error: 'No valid data found for this number',
           success: false,
           noDeduction: true,
           remainingCredits: user.credits
@@ -170,8 +184,8 @@ serve(async (req) => {
       );
     }
 
-    // Parse the response - get the first result that matches the searched number
-    const results = resultArray;
+    // Parse the response - use only valid results
+    const results = validResults;
     const primaryResult = results.find((r: any) => r.mobile === phoneNumber) || results[0];
 
     // Security: Sanitize output - format address safely
