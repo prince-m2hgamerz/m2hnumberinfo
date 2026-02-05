@@ -197,22 +197,22 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
 
       /* ===== AADHAAR LOOKUP ===== */
       if (mode === "aadhaar") {
-        const res = await fetch(`https://aadharinfo.m2hgamerz.workers.dev/?num=${number}`);
-        const json = await res.json();
+        const { data, error } = await supabase.functions.invoke("aadhaar-lookup", {
+          body: { userId, phoneNumber: number },
+        });
 
-        // Check for multiple possible data locations in the API response
-        const records = json.records || json.data || (Array.isArray(json) ? json : null);
+        if (error) throw error;
 
-        if (!json.success && !records) {
+        if (!data?.success) {
           toast({
             title: "No Aadhaar Data",
-            description: "No records found for this number.",
+            description: data?.error || "No records found for this number.",
             variant: "destructive",
           });
           return;
         }
 
-        const finalRecords = Array.isArray(records) ? records : records ? [records] : [];
+        const finalRecords = data.records || [];
 
         if (finalRecords.length === 0) {
           toast({ title: "No Records Found", description: "No Aadhaar data linked to this number." });
@@ -222,8 +222,7 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
         setAadhaarResults(finalRecords);
         setResultCount(finalRecords.length);
 
-        // Deduction logic for Aadhaar
-        onLookup(credits - 1);
+        onLookup(data.remainingCredits ?? credits - 1);
         onHistoryUpdate();
 
         toast({
@@ -373,8 +372,8 @@ export const NumberLookup = ({ userId, credits, onLookup, onHistoryUpdate }: Pro
 
                         <div className="bg-background/50 p-3 rounded-lg border border-dashed">
                           <p className="text-[10px] text-muted-foreground uppercase font-bold mb-1">Aadhaar Number</p>
-                          <p className="font-mono text-lg tracking-widest text-primary">
-                            {a.aadhar_number || a.aadhaar_number || "•••• •••• ••••"}
+                          <p className="font-mono text-lg tracking-wider text-primary">
+                            {a.aadhar_number || a.aadhaar_number || "Not Available"}
                           </p>
                         </div>
                       </div>
