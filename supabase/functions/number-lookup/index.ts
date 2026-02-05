@@ -173,6 +173,7 @@ serve(async (req) => {
             .eq('user_id', userId);
         }
       }
+      // Return 200 with success: false to avoid error handling issues
       return new Response(
         JSON.stringify({ 
           error: 'No valid data found for this number',
@@ -180,7 +181,7 @@ serve(async (req) => {
           noDeduction: true,
           remainingCredits: user.credits
         }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

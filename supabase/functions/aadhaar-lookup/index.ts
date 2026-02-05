@@ -146,7 +146,7 @@
            noDeduction: true,
            remainingCredits: user.credits
          }),
-         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
        );
      }
  
